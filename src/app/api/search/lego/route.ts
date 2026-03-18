@@ -9,12 +9,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing q" }, { status: 400 });
   }
 
-  if (isEmpty()) {
+  if (await isEmpty()) {
     return NextResponse.json({ suggestions: [], total: 0 });
   }
 
   const lower = q.toLowerCase();
-  const all = getAll();
+  const all = await getAll();
 
   // Score each set: higher = better match
   const scored = all

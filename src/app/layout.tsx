@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, JetBrains_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { CurrencyProvider } from "@/store/currencyStore";
 import { UserProvider } from "@/store/userStore";
 import { AuthProvider } from "@/store/authStore";
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </UserProvider>
           </AuthProvider>
         </CurrencyProvider>
+        <Analytics />
       </body>
     </html>
   );

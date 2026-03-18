@@ -4,6 +4,11 @@ import { z } from "zod";
 
 export const AssetClassSchema = z.enum([
   "trading_cards",
+  "basketball_cards",
+  "football_cards",
+  "hockey_cards",
+  "american_football_cards",
+  "comics",
   "lego",
   "cs2_skins",
   "music_royalties",
@@ -52,6 +57,12 @@ export type Transaction = z.infer<typeof TransactionSchema>;
 
 // ─── Asset ────────────────────────────────────────────────────────────────────
 
+export const PriceSnapshotLiteSchema = z.object({
+  date: z.string(),           // "YYYY-MM-DD"
+  priceCents: z.number().int().nonnegative(),
+});
+export type PriceSnapshotLite = z.infer<typeof PriceSnapshotLiteSchema>;
+
 export const AssetSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
@@ -64,6 +75,8 @@ export const AssetSchema = z.object({
   currency: CurrencySchema,
   /** Current market price in cents */
   currentPriceCents: z.number().int().nonnegative(),
+  /** Historical price snapshots — one per day, recorded on each auto-refresh */
+  priceSnapshots: z.array(PriceSnapshotLiteSchema).default([]),
   /** Estimated days to liquidate */
   liquidityDays: z.number().int().positive(),
   /** 0–100 composite risk score (higher = riskier) */
@@ -74,6 +87,10 @@ export const AssetSchema = z.object({
   holdingCostCents: z.number().int().nonnegative(),
   transactions: z.array(TransactionSchema),
   tags: z.array(z.string()).default([]),
+  /** Card/skin image URL for display */
+  imageUrl: z.string().url().optional(),
+  /** Small thumbnail URL */
+  imageThumbnailUrl: z.string().url().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });

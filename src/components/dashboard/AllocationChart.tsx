@@ -25,7 +25,7 @@ export function AllocationChart({ byClass }: Props) {
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <h3 className="fm text-xs font-semibold uppercase tracking-wider text-[#4E6080]">
         Allocation
       </h3>
       <ResponsiveContainer width="100%" height={220}>
@@ -46,17 +46,17 @@ export function AllocationChart({ byClass }: Props) {
           <Tooltip
             formatter={(value: number) => formatCents(value)}
             contentStyle={{
-              background: "#0f172a",
-              border: "1px solid #1e293b",
+              background: "#0E1830",
+              border: "1px solid #1C2640",
               borderRadius: 8,
-              color: "#f1f5f9",
+              color: "#E8F0FF",
             }}
           />
           <Legend
             iconType="circle"
             iconSize={8}
             formatter={(value: string) => (
-              <span className="text-xs text-slate-400">{value}</span>
+              <span className="text-xs text-[#4E6080]">{value}</span>
             )}
           />
         </PieChart>

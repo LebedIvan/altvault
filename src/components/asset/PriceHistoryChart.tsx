@@ -16,17 +16,22 @@ import { clsx } from "clsx";
 import type { Asset } from "@/types/asset";
 import { buildSingleAssetHistory } from "@/lib/portfolioHistory";
 
-type Range = "1M" | "3M" | "6M" | "1Y" | "5Y" | "ALL";
-const RANGES: Range[] = ["1M", "3M", "6M", "1Y", "5Y", "ALL"];
+type Range = "MTD" | "YTD" | "1M" | "3M" | "6M" | "1Y" | "5Y" | "ALL";
+const RANGES: Range[] = ["MTD", "YTD", "1M", "3M", "6M", "1Y", "5Y", "ALL"];
 
-const RANGE_DAYS: Record<Range, number> = {
-  "1M":  30,
-  "3M":  90,
-  "6M":  180,
-  "1Y":  365,
-  "5Y":  1825,
-  "ALL": Infinity,
-};
+function rangeDays(r: Range): number {
+  const now = new Date();
+  switch (r) {
+    case "MTD": return now.getDate() - 1;
+    case "YTD": return Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000);
+    case "1M":  return 30;
+    case "3M":  return 90;
+    case "6M":  return 180;
+    case "1Y":  return 365;
+    case "5Y":  return 1825;
+    case "ALL": return Infinity;
+  }
+}
 
 interface BenchmarkPoint {
   date: string;
@@ -34,10 +39,13 @@ interface BenchmarkPoint {
 }
 
 const BENCHMARKS = [
-  { key: "SP500",  label: "S&P 500",  color: "#f59e0b" },
-  { key: "BTC",    label: "Bitcoin",  color: "#3b82f6" },
-  { key: "GOLD",   label: "Gold",     color: "#d97706" },
-  { key: "NASDAQ", label: "NASDAQ",   color: "#a78bfa" },
+  { key: "SP500",     label: "S&P 500",   color: "#f59e0b" },
+  { key: "BTC",       label: "Bitcoin",   color: "#3b82f6" },
+  { key: "GOLD",      label: "Gold",      color: "#d97706" },
+  { key: "NASDAQ",    label: "NASDAQ",    color: "#a78bfa" },
+  { key: "SILVER",    label: "Silver",    color: "#94a3b8" },
+  { key: "PLATINUM",  label: "Platinum",  color: "#e2e8f0" },
+  { key: "PALLADIUM", label: "Palladium", color: "#fb923c" },
 ] as const;
 
 type BenchmarkKey = typeof BENCHMARKS[number]["key"];
@@ -85,24 +93,36 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 interface Props {
-  asset: Asset;
+  asset?: Asset;
+  /** Override the computed history — used when data comes from outside (e.g. eBay sold for LEGO pages) */
+  historyOverride?: { date: string; valueCents: number }[];
+  /** Display name shown in chart legend (used with historyOverride) */
+  name?: string;
 }
 
-export function PriceHistoryChart({ asset }: Props) {
+/** Detect which real-price benchmark to use for this asset (commodities only). */
+function detectAutoBenchmark(asset: Asset): BenchmarkKey | null {
+  if (asset.assetClass !== "commodities") return null;
+  const n = asset.name.toUpperCase();
+  if (n.includes("GOLD"))      return "GOLD";
+  if (n.includes("SILVER"))    return "SILVER";
+  if (n.includes("PLATINUM"))  return "PLATINUM";
+  if (n.includes("PALLADIUM")) return "PALLADIUM";
+  return null;
+}
+
+export function PriceHistoryChart({ asset, historyOverride, name }: Props) {
   const [range, setRange] = useState<Range>("1Y");
   const [activeBenchmarks, setActiveBenchmarks] = useState<Set<BenchmarkKey>>(
-    new Set(["SP500"]),
+    new Set(["SP500"] as BenchmarkKey[]),
   );
   const [benchmarkData, setBenchmarkData] = useState<
     Partial<Record<BenchmarkKey, BenchmarkPoint[]>>
   >({});
   const [loadingBenchmarks, setLoadingBenchmarks] = useState<Set<BenchmarkKey>>(new Set());
 
-  // Asset's own % return history
-  const assetHistory = buildSingleAssetHistory(asset);
-  const days = RANGE_DAYS[range];
-  const sliced = isFinite(days) ? assetHistory.slice(-days) : assetHistory;
-  const assetPct = toReturnPct(sliced.map((p) => ({ date: p.date, value: p.valueCents })));
+  // Real-price benchmark for supported asset types (e.g. GOLD for gold commodities)
+  const autoBenchmarkKey = asset ? detectAutoBenchmark(asset) : null;
 
   // Fetch benchmark data
   const fetchBenchmark = useCallback(
@@ -127,8 +147,13 @@ export function PriceHistoryChart({ asset }: Props) {
     [benchmarkData, range],
   );
 
+  // Auto-fetch real price data for supported asset types
   useEffect(() => {
-    for (const key of activeBenchmarks) {
+    if (autoBenchmarkKey) void fetchBenchmark(autoBenchmarkKey);
+  }, [autoBenchmarkKey, fetchBenchmark]);
+
+  useEffect(() => {
+    for (const key of Array.from(activeBenchmarks)) {
       void fetchBenchmark(key);
     }
   }, [activeBenchmarks, range, fetchBenchmark]);
@@ -137,6 +162,18 @@ export function PriceHistoryChart({ asset }: Props) {
   useEffect(() => {
     setBenchmarkData({});
   }, [range]);
+
+  // Asset's own % return history
+  const assetHistory = historyOverride ?? (asset ? buildSingleAssetHistory(asset) : []);
+  const days = rangeDays(range);
+  const sliced = isFinite(days) ? assetHistory.slice(-Math.max(1, days)) : assetHistory;
+
+  // Use real market data for commodities (GOLD → Yahoo GC=F), else linear interpolation
+  const realPoints = autoBenchmarkKey ? benchmarkData[autoBenchmarkKey] : undefined;
+  const usingRealData = !!realPoints && realPoints.length > 0;
+  const assetPct = usingRealData
+    ? toReturnPct(realPoints!.map((p) => ({ date: p.date, value: p.close })))
+    : toReturnPct(sliced.map((p) => ({ date: p.date, value: p.valueCents })));
 
   function toggleBenchmark(key: BenchmarkKey) {
     setActiveBenchmarks((prev) => {
@@ -161,13 +198,13 @@ export function PriceHistoryChart({ asset }: Props) {
     mergedMap.set(p.date, { asset: p.pct });
   }
 
-  for (const key of activeBenchmarks) {
-    const bData = benchmarkData[key];
+  for (const key of Array.from(activeBenchmarks)) {
+    const bData = benchmarkData[key as BenchmarkKey];
     if (!bData || bData.length === 0) continue;
 
     // Slice to same date range as asset
     const filtered = bData.filter(
-      (p) =>
+      (p: BenchmarkPoint) =>
         (!startDate || p.date >= startDate) &&
         (!endDate   || p.date <= endDate),
     );
@@ -252,7 +289,7 @@ export function PriceHistoryChart({ asset }: Props) {
         {/* Benchmark pills */}
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-slate-600 mr-1">Бенчмарки</span>
-          {BENCHMARKS.map((b) => {
+          {BENCHMARKS.filter((b) => b.key !== autoBenchmarkKey).map((b) => {
             const active = activeBenchmarks.has(b.key);
             const loading = loadingBenchmarks.has(b.key);
             return (
@@ -307,7 +344,7 @@ export function PriceHistoryChart({ asset }: Props) {
             <Line
               type="monotone"
               dataKey="asset"
-              name={asset.name.slice(0, 20)}
+              name={(name ?? asset?.name ?? "").slice(0, 24)}
               stroke={isUp ? "#10b981" : "#ef4444"}
               strokeWidth={2.5}
               dot={false}
@@ -325,6 +362,7 @@ export function PriceHistoryChart({ asset }: Props) {
                 strokeWidth={1.5}
                 dot={false}
                 strokeOpacity={0.8}
+                connectNulls={true}
                 activeDot={{ r: 3 }}
               />
             ))}
@@ -340,9 +378,13 @@ export function PriceHistoryChart({ asset }: Props) {
         </ResponsiveContainer>
       )}
 
-      {/* Asset-only pct note */}
-      <p className="mt-2 text-xs text-slate-700">
-        * Стоимость актива — интерполяция между ценой покупки и текущей рыночной ценой.
+      {/* Chart note */}
+      <p className="mt-2 text-xs text-slate-600">
+        {historyOverride
+          ? "📦 История цен из eBay sold listings. Бенчмарки от Yahoo Finance, нормализованы к той же стартовой точке."
+          : usingRealData
+            ? "✓ Реальные рыночные данные (Yahoo Finance)."
+            : "⚠ Симулированная история цены — промежуточные значения не соответствуют реальным сделкам на рынке. Только цена покупки и текущая цена являются реальными."}
       </p>
 
       {/* Suppress unused var */}

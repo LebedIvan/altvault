@@ -18,17 +18,22 @@ interface Props {
   history: HistoryPoint[];
 }
 
-type Range = "1M" | "3M" | "6M" | "1Y" | "ALL";
+type Range = "MTD" | "YTD" | "1M" | "3M" | "6M" | "1Y" | "ALL";
 
-const RANGES: Range[] = ["1M", "3M", "6M", "1Y", "ALL"];
+const RANGES: Range[] = ["MTD", "YTD", "1M", "3M", "6M", "1Y", "ALL"];
 
-const RANGE_DAYS: Record<Range, number> = {
-  "1M": 30,
-  "3M": 90,
-  "6M": 180,
-  "1Y": 365,
-  "ALL": Infinity,
-};
+function rangeDays(r: Range): number {
+  const now = new Date();
+  switch (r) {
+    case "MTD": return now.getDate() - 1;
+    case "YTD": return Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000);
+    case "1M":  return 30;
+    case "3M":  return 90;
+    case "6M":  return 180;
+    case "1Y":  return 365;
+    case "ALL": return Infinity;
+  }
+}
 
 function formatEur(cents: number) {
   return new Intl.NumberFormat("es-ES", {
@@ -48,14 +53,19 @@ function formatDate(dateStr: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
-  const value: number = payload[0]?.value ?? 0;
-  const cost: number = payload[1]?.value ?? 0;
+  // Find by dataKey — order in payload matches render order, not intuition
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const valueEntry = payload.find((p: any) => p.dataKey === "valueCents");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const costEntry  = payload.find((p: any) => p.dataKey === "costCents");
+  const value: number = valueEntry?.value ?? 0;
+  const cost: number  = costEntry?.value  ?? 0;
   const gain = value - cost;
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 shadow-xl">
-      <p className="mb-1 text-xs text-slate-500">{label}</p>
-      <p className="text-base font-bold text-white">{formatEur(value)}</p>
-      <p className={clsx("text-sm font-medium", gain >= 0 ? "text-emerald-400" : "text-red-400")}>
+    <div className="rounded-lg border border-[#1C2640] bg-[#0E1830] px-4 py-3 shadow-xl">
+      <p className="fm mb-1 text-xs text-[#4E6080]">{label}</p>
+      <p className="fb text-base font-bold text-[#E8F0FF]">{formatEur(value)}</p>
+      <p className={clsx("fm text-sm font-medium", gain >= 0 ? "text-[#4ADE80]" : "text-[#F87171]")}>
         {gain >= 0 ? "+" : ""}{formatEur(gain)}
       </p>
     </div>
@@ -66,15 +76,15 @@ export function TrendChart({ history }: Props) {
   const [range, setRange] = useState<Range>("1Y");
 
   const filtered = useMemo(() => {
-    const days = RANGE_DAYS[range];
+    const days = rangeDays(range);
     if (!isFinite(days)) return history;
-    return history.slice(-days);
+    return history.slice(-Math.max(1, days));
   }, [history, range]);
 
   const first = filtered[0]?.valueCents ?? 0;
   const last  = filtered.at(-1)?.valueCents ?? 0;
   const isUp  = last >= first;
-  const color = isUp ? "#10b981" : "#ef4444";
+  const color = isUp ? "#4ADE80" : "#F87171";
 
   // X-axis: show ~6 labels
   const step = Math.max(1, Math.floor(filtered.length / 6));
@@ -84,7 +94,7 @@ export function TrendChart({ history }: Props) {
 
   if (history.length === 0) {
     return (
-      <div className="flex h-[280px] items-center justify-center text-sm text-slate-600">
+      <div className="flex h-[280px] items-center justify-center fm text-sm text-[#2A3A50]">
         Добавьте активы — график построится автоматически
       </div>
     );
@@ -101,8 +111,8 @@ export function TrendChart({ history }: Props) {
             className={clsx(
               "rounded-md px-3 py-1 text-xs font-semibold transition-colors",
               range === r
-                ? "bg-slate-700 text-white"
-                : "text-slate-500 hover:text-slate-300",
+                ? "bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/25"
+                : "text-[#4E6080] hover:text-[#B0C4DE]",
             )}
           >
             {r}
@@ -124,19 +134,19 @@ export function TrendChart({ history }: Props) {
             </linearGradient>
           </defs>
 
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#1C2640" vertical={false} />
 
           <XAxis
             dataKey="date"
             ticks={ticks}
             tickFormatter={formatDate}
-            tick={{ fill: "#475569", fontSize: 11 }}
+            tick={{ fill: "#4E6080", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             tickFormatter={(v: number) => formatEur(v)}
-            tick={{ fill: "#475569", fontSize: 11 }}
+            tick={{ fill: "#4E6080", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
             width={80}
@@ -166,7 +176,7 @@ export function TrendChart({ history }: Props) {
             strokeWidth={2.5}
             fill="url(#grad-value)"
             dot={false}
-            activeDot={{ r: 4, fill: color, stroke: "#0f172a", strokeWidth: 2 }}
+            activeDot={{ r: 4, fill: color, stroke: "#0B1120", strokeWidth: 2 }}
             name="Valor"
           />
 

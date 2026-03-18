@@ -2,8 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Ticker ── */
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-track {
+  animation: ticker-scroll 60s linear infinite;
+  width: max-content;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+/* ── Design system ── */
 :root {
   color-scheme: dark;
+  --amber:       #F59E0B;
+  --amber-bright:#FCD34D;
+  --bg-main:     #0B1120;
+  --bg-card:     #0E1830;
+  --bg-inset:    #080F1C;
+  --text-primary:#E8F0FF;
+  --text-secondary:#B0C4DE;
+  --text-muted:  #4E6080;
+  --text-faint:  #2A3A50;
+  --border:      #1C2640;
+  --border-inner:#162035;
+  --success:     #4ADE80;
+  --danger:      #F87171;
 }
 
 * {
@@ -11,5 +38,25 @@
 }
 
 body {
-  @apply bg-slate-950 text-white antialiased;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ── Font helpers ── */
+.fb { font-family: var(--font-bricolage), system-ui, sans-serif; }
+.fm { font-family: var(--font-mono), monospace; }
+
+/* ── Layout helpers ── */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(245,158,11,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245,158,11,0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+.amber-glow { box-shadow: 0 0 60px rgba(245,158,11,0.08); }
+.card-shadow { box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px var(--border); }
+
+/* ── Select & option dark fix ── */
+select option { background-color: #0E1830; color: #E8F0FF; }

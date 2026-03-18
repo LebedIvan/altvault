@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clsx } from "clsx";
-import { formatCents, formatPct, formatROI, ASSET_CLASS_LABELS } from "@/lib/formatters";
+import { formatPct, formatROI, ASSET_CLASS_LABELS } from "@/lib/formatters";
+import { useCurrency } from "@/store/currencyStore";
 import type { Asset } from "@/types/asset";
 import type { AssetMetrics } from "@/types/portfolio";
+import { SellAssetModal } from "@/components/dashboard/SellAssetModal";
 
 interface Props {
   assets: Asset[];
@@ -13,12 +16,12 @@ interface Props {
 
 type SortKey = "name" | "value" | "pnl" | "roi" | "liquidity" | "risk";
 
-import { useState } from "react";
-
 export function AssetTable({ assets, metrics }: Props) {
   const router = useRouter();
+  const { fmtCents } = useCurrency();
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortAsc, setSortAsc] = useState(false);
+  const [sellAsset, setSellAsset] = useState<Asset | null>(null);
 
   const rows = assets
     .map((asset, i) => ({ asset, metrics: metrics[i]! }))
@@ -70,7 +73,7 @@ export function AssetTable({ assets, metrics }: Props) {
         onClick={() => toggleSort(colKey)}
         className={clsx(
           "cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider",
-          active ? "text-sky-400" : "text-slate-500 hover:text-slate-300",
+          active ? "text-[#F59E0B]" : "text-[#3E5070] hover:text-[#B0C4DE]",
         )}
       >
         {label} {active ? (sortAsc ? "↑" : "↓") : ""}
@@ -79,88 +82,126 @@ export function AssetTable({ assets, metrics }: Props) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-800">
-      <table className="min-w-full divide-y divide-slate-800 bg-slate-900 text-sm">
+    <div className="overflow-x-auto rounded-xl border border-[#1C2640]">
+      <table className="min-w-full divide-y divide-[#162035] bg-[#0E1830] text-sm">
         <thead>
-          <tr className="bg-slate-950">
+          <tr className="bg-[#080F1C]">
             <SortTh label="Asset" colKey="name" />
-            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070]">
               Class
             </th>
-            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070]">
               Units
             </th>
-            <SortTh label="Market Value" colKey="value" />
-            <SortTh label="Unreal. P&L" colKey="pnl" />
-            <SortTh label="Ann. ROI" colKey="roi" />
-            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <SortTh label="Value" colKey="value" />
+            <SortTh label="P&L" colKey="pnl" />
+            <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070] cursor-pointer select-none" onClick={() => toggleSort("roi")}>
+              ROI {sortKey === "roi" ? (sortAsc ? "↑" : "↓") : ""}
+            </th>
+            <th className="hidden xl:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070]">
               Net After Fee
             </th>
-            <SortTh label="Liquidity" colKey="liquidity" />
-            <SortTh label="Risk" colKey="risk" />
+            <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070] cursor-pointer select-none" onClick={() => toggleSort("liquidity")}>
+              Liquidity {sortKey === "liquidity" ? (sortAsc ? "↑" : "↓") : ""}
+            </th>
+            <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070] cursor-pointer select-none" onClick={() => toggleSort("risk")}>
+              Risk {sortKey === "risk" ? (sortAsc ? "↑" : "↓") : ""}
+            </th>
+            <th className="px-4 py-3" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-800">
+        <tbody className="divide-y divide-[#162035]">
           {rows.map(({ asset, metrics: m }) => {
             const pnlColor =
               m.unrealizedPnLCents > 0
-                ? "text-emerald-400"
+                ? "text-[#4ADE80]"
                 : m.unrealizedPnLCents < 0
-                  ? "text-red-400"
-                  : "text-slate-400";
+                  ? "text-[#F87171]"
+                  : "text-[#4E6080]";
             const roiColor =
               m.annualizedROI > 0
-                ? "text-emerald-400"
+                ? "text-[#4ADE80]"
                 : m.annualizedROI < 0
-                  ? "text-red-400"
-                  : "text-slate-400";
+                  ? "text-[#F87171]"
+                  : "text-[#4E6080]";
 
             return (
               <tr
                 key={asset.id}
                 onClick={() => router.push(`/asset/${asset.id}`)}
-                className="cursor-pointer transition-colors hover:bg-slate-800/50"
+                className="cursor-pointer transition-colors hover:bg-[#162035]"
               >
-                <td className="px-4 py-3 font-medium text-white">
-                  <div>{asset.name}</div>
-                  {asset.grade !== undefined && (
-                    <span className="text-xs text-amber-400">
-                      PSA {asset.grade}
-                    </span>
-                  )}
+                <td className="px-4 py-3 font-medium text-[#E8F0FF]">
+                  <div className="flex items-center gap-3">
+                    {asset.imageThumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={asset.imageThumbnailUrl}
+                        alt=""
+                        className="h-10 w-8 shrink-0 rounded object-contain bg-slate-800"
+                      />
+                    ) : asset.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={asset.imageUrl}
+                        alt=""
+                        className="h-10 w-8 shrink-0 rounded object-contain bg-slate-800"
+                      />
+                    ) : null}
+                    <div>
+                      <div className="leading-tight">{asset.name}</div>
+                      {asset.grade !== undefined && (
+                        <span className="text-xs text-amber-400">PSA {asset.grade}</span>
+                      )}
+                    </div>
+                  </div>
                 </td>
-                <td className="px-4 py-3 text-slate-400">
+                <td className="hidden md:table-cell px-4 py-3 text-[#4E6080]">
                   {ASSET_CLASS_LABELS[asset.assetClass] ?? asset.assetClass}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-slate-300">
+                <td className="hidden lg:table-cell px-4 py-3 tabular-nums text-[#B0C4DE]">
                   {m.unitsHeld}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-white">
-                  {formatCents(m.currentValueCents, asset.currency)}
+                <td className="px-4 py-3 tabular-nums text-[#E8F0FF]">
+                  {fmtCents(m.currentValueCents, asset.currency)}
                 </td>
                 <td className={clsx("px-4 py-3 tabular-nums font-medium", pnlColor)}>
-                  {formatCents(m.unrealizedPnLCents, asset.currency)}
+                  {fmtCents(m.unrealizedPnLCents, asset.currency)}
                   <div className="text-xs opacity-75">
                     {formatPct(m.simpleROI)}
                   </div>
                 </td>
-                <td className={clsx("px-4 py-3 tabular-nums font-medium", roiColor)}>
+                <td className={clsx("hidden sm:table-cell px-4 py-3 tabular-nums font-medium", roiColor)}>
                   {formatROI(m.annualizedROI)}
                 </td>
-                <td className="px-4 py-3 tabular-nums text-slate-300">
-                  {formatCents(m.netValueAfterFeeCents, asset.currency)}
+                <td className="hidden xl:table-cell px-4 py-3 tabular-nums text-[#B0C4DE]">
+                  {fmtCents(m.netValueAfterFeeCents, asset.currency)}
                 </td>
-                <td className="px-4 py-3">
+                <td className="hidden lg:table-cell px-4 py-3">
                   <LiquidityBadge days={asset.liquidityDays} />
                 </td>
-                <td className="px-4 py-3">
+                <td className="hidden lg:table-cell px-4 py-3">
                   <RiskBar score={asset.riskScore} />
+                </td>
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  {m.unitsHeld > 0 && (
+                    <button
+                      onClick={() => setSellAsset(asset)}
+                      className="rounded-md bg-red-600/20 px-3 py-1 text-xs font-semibold text-red-400 hover:bg-red-600/40 hover:text-red-300 transition-colors whitespace-nowrap"
+                    >
+                      Продать
+                    </button>
+                  )}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {sellAsset && (
+        <SellAssetModal asset={sellAsset} onClose={() => setSellAsset(null)} />
+      )}
     </div>
   );
 }
@@ -170,7 +211,7 @@ function LiquidityBadge({ days }: { days: number }) {
     days <= 3
       ? "bg-emerald-500/20 text-emerald-300"
       : days <= 14
-        ? "bg-sky-500/20 text-sky-300"
+        ? "bg-[#F59E0B]/20 text-[#FCD34D]"
         : days <= 60
           ? "bg-amber-500/20 text-amber-300"
           : "bg-red-500/20 text-red-300";
@@ -199,20 +240,20 @@ function LiquidityBadge({ days }: { days: number }) {
 function RiskBar({ score }: { score: number }) {
   const color =
     score < 30
-      ? "bg-emerald-500"
+      ? "bg-[#4ADE80]"
       : score < 60
-        ? "bg-amber-500"
-        : "bg-red-500";
+        ? "bg-[#F59E0B]"
+        : "bg-[#F87171]";
 
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-700">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[#1C2640]">
         <div
           className={clsx("h-full rounded-full", color)}
           style={{ width: `${score}%` }}
         />
       </div>
-      <span className="text-xs tabular-nums text-slate-500">{score}</span>
+      <span className="fm text-xs tabular-nums text-[#3E5070]">{score}</span>
     </div>
   );
 }

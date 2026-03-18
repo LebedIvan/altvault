@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { clsx } from "clsx";
 import { HeroMetrics } from "./HeroMetrics";
 import { TrendChart } from "./TrendChart";
@@ -8,11 +9,16 @@ import { AssetTable } from "./AssetTable";
 import { AllocationChart } from "./AllocationChart";
 import { TaxReportPanel } from "./TaxReport";
 import { AddAssetModal } from "./AddAssetModal";
+import { TopMovers } from "./TopMovers";
 import { computePortfolioSummary } from "@/lib/calculations/portfolio";
+import { computeHealthScore } from "@/lib/calculations/healthScore";
 import { buildTaxReport } from "@/lib/calculations/tax";
 import { buildPortfolioHistory } from "@/lib/portfolioHistory";
-import { formatCents } from "@/lib/formatters";
+import { HealthScoreCard } from "@/components/analyst/HealthScoreCard";
 import { usePortfolio } from "@/store/portfolioStore";
+import { useCurrency, CURRENCY_LABELS, type DisplayCurrency } from "@/store/currencyStore";
+import { useUser, getInitials } from "@/store/userStore";
+import { useAuth } from "@/store/authStore";
 import { refreshAllPrices, type RefreshResult } from "@/lib/priceRefresh";
 
 type Tab = "overview" | "holdings" | "tax";
@@ -24,7 +30,10 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export function PortfolioDashboard() {
-  const { assets, updatePrice, isLoaded } = usePortfolio();
+  const { assets, updatePrice, resetToDemo, isLoaded } = usePortfolio();
+  const { displayCurrency, setDisplayCurrency, fmtCents } = useCurrency();
+  const { profile } = useUser();
+  const { mode, user, logout } = useAuth();
 
   const [tab, setTab] = useState<Tab>("overview");
   const [taxYear, setTaxYear] = useState(2024);
@@ -33,6 +42,7 @@ export function PortfolioDashboard() {
   const [refreshLog, setRefreshLog] = useState<RefreshResult[]>([]);
 
   const summary = computePortfolioSummary(assets);
+  const health  = computeHealthScore(assets);
   const taxReport = buildTaxReport(assets, taxYear);
   const history = buildPortfolioHistory(assets);
 
@@ -55,70 +65,138 @@ export function PortfolioDashboard() {
   }
 
   const supportedCount = assets.filter(
-    (a) => a.assetClass === "cs2_skins" || a.assetClass === "commodities",
+    (a) => a.assetClass === "cs2_skins" || a.assetClass === "commodities" || a.assetClass === "trading_cards",
   ).length;
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white">
+    <div className="min-h-screen bg-[#0B1120] text-[#E8F0FF]">
       {/* ── Navbar ── */}
-      <header className="sticky top-0 z-20 border-b border-slate-800/60 bg-[#0d1117]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-screen-xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500 text-sm font-black text-white">
-              A
-            </span>
-            <span className="text-sm font-semibold tracking-tight">AltVault</span>
+      <header className="sticky top-0 z-20 border-b border-[#1C2640] bg-[#0B1120]/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-screen-xl items-center justify-between px-3 sm:px-6 py-2 sm:py-3 gap-2">
+          {/* Logo */}
+          <div className="flex items-center gap-2 shrink-0">
+            <img src="/logo.png" alt="Vaulty" className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg object-cover" />
+            <span className="fb text-sm font-bold tracking-tight text-[#E8F0FF] hidden sm:block">Vaulty</span>
           </div>
 
-          <nav className="flex items-center gap-1">
+          {/* Tabs — центр */}
+          <nav className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-none">
             {TABS.map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
                 className={clsx(
-                  "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+                  "fm shrink-0 rounded-md px-2.5 sm:px-4 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors",
                   tab === key
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-500 hover:text-slate-300",
+                    ? "bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/25"
+                    : "text-[#4E6080] hover:text-[#B0C4DE]",
                 )}
               >
                 {label}
               </button>
             ))}
+            <a
+              href="/terminal"
+              className="fm shrink-0 hidden sm:block ml-1 rounded-md border border-[#1C2640] bg-[#080F1C] px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#4ADE80] transition-colors hover:border-[#4ADE80]/30"
+            >
+              Terminal
+            </a>
+            <a
+              href="/analyst"
+              className="fm shrink-0 hidden md:flex ml-1 items-center gap-1 rounded-md border border-[#1C2640] bg-[#080F1C] px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#F59E0B] transition-colors hover:border-[#F59E0B]/30"
+            >
+              🤖 AI
+              {health.issues.some(i => i.severity === "critical") && (
+                <span className="h-1.5 w-1.5 rounded-full bg-[#F87171]" />
+              )}
+            </a>
+            <a
+              href="/merlin"
+              className="fm shrink-0 hidden md:flex ml-1 items-center gap-1 rounded-md border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[#F59E0B] transition-colors hover:bg-[#F59E0B]/20"
+            >
+              ◆ Merlin
+            </a>
           </nav>
 
-          <div className="flex items-center gap-2">
+          {/* Right actions */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Currency selector */}
+            <select
+              value={displayCurrency}
+              onChange={(e) => setDisplayCurrency(e.target.value as DisplayCurrency)}
+              className="fm rounded-lg border border-[#1C2640] bg-[#0E1830] px-1.5 sm:px-2 py-1.5 text-xs font-semibold text-[#B0C4DE] focus:outline-none focus:border-[#F59E0B]/40 cursor-pointer"
+            >
+              {(Object.keys(CURRENCY_LABELS) as DisplayCurrency[]).map((c) => (
+                <option key={c} value={c}>{CURRENCY_LABELS[c]}</option>
+              ))}
+            </select>
+
             {/* Refresh prices */}
             {supportedCount > 0 && (
               <button
                 onClick={handleRefreshPrices}
                 disabled={refreshing}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-sky-600 hover:text-sky-400 disabled:opacity-50"
+                className="fm flex items-center gap-1 rounded-lg border border-[#1C2640] bg-[#0E1830] px-2 py-1.5 text-xs font-medium text-[#4E6080] hover:border-[#F59E0B]/30 hover:text-[#F59E0B] disabled:opacity-50 transition-colors"
               >
-                <span className={clsx("text-base leading-none", refreshing && "animate-spin")}>
-                  ↻
-                </span>
-                {refreshing ? "Обновление..." : "Обновить цены"}
+                <span className={clsx("text-base leading-none", refreshing && "animate-spin")}>↻</span>
+                <span className="hidden sm:inline">{refreshing ? "Обновление..." : "Цены"}</span>
               </button>
             )}
+
+            {/* Demo badge */}
+            {mode === "demo" && (
+              <span className="fm hidden sm:inline rounded-full border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2 py-1 text-xs font-semibold text-[#F59E0B] uppercase tracking-wider">
+                ДЕМО
+              </span>
+            )}
+            {mode === "user" && (
+              <button
+                onClick={() => { if (confirm("Сбросить портфель к демо-данным? Все изменения будут потеряны.")) resetToDemo(); }}
+                className="fm hidden sm:flex items-center rounded-lg border border-[#1C2640] bg-[#0E1830] px-2 py-1.5 text-xs font-medium text-[#3E5070] hover:border-[#2A3A50] hover:text-[#B0C4DE] transition-colors"
+                title="Загрузить демо-данные"
+              >
+                Демо
+              </button>
+            )}
+
+            {/* Avatar */}
+            <Link
+              href="/settings"
+              title={user ? `${user.name} — Настройки` : "Настройки"}
+              className={clsx(
+                "flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-full text-xs font-black text-white transition-opacity hover:opacity-80",
+                user ? `bg-${profile.avatarColor}-500` : "bg-[#1C2640]",
+              )}
+            >
+              {user ? getInitials(user.name || profile.name) : "?"}
+            </Link>
+
+            {/* Logout */}
+            <button
+              onClick={() => void logout()}
+              title="Выйти"
+              className="fm rounded-lg border border-[#1C2640] px-2 py-1.5 text-xs text-[#3E5070] hover:border-[#2A3A50] hover:text-[#B0C4DE] transition-colors"
+            >
+              ↩
+            </button>
 
             {/* Add asset */}
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-500"
+              className="fm flex items-center gap-1 rounded-lg bg-[#F59E0B] px-2.5 sm:px-4 py-1.5 text-xs font-bold text-[#0B1120] hover:bg-[#FCD34D] uppercase tracking-wider transition-colors"
             >
-              + Добавить
+              + <span className="hidden sm:inline">Добавить</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-screen-xl px-6 py-8">
+      <main className="mx-auto max-w-screen-xl px-3 sm:px-6 py-4 sm:py-8">
 
         {/* Refresh log */}
         {refreshLog.length > 0 && (
-          <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div className="mb-4 rounded-xl border border-[#1C2640] bg-[#0E1830] p-4">
+            <p className="fm mb-2 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">
               Результат обновления цен
             </p>
             <div className="space-y-1">
@@ -129,16 +207,16 @@ export function PortfolioDashboard() {
                     <span
                       className={clsx(
                         "h-1.5 w-1.5 shrink-0 rounded-full",
-                        r.priceCents !== null ? "bg-emerald-400" : "bg-red-400",
+                        r.priceCents !== null ? "bg-[#4ADE80]" : "bg-[#F87171]",
                       )}
                     />
-                    <span className="text-slate-300">{asset?.name ?? r.assetId}</span>
+                    <span className="fm text-[#B0C4DE]">{asset?.name ?? r.assetId}</span>
                     {r.priceCents !== null ? (
-                      <span className="text-emerald-400">
-                        → {formatCents(r.priceCents, asset?.currency ?? "EUR")}
+                      <span className="fm text-[#4ADE80]">
+                        → {fmtCents(r.priceCents, asset?.currency ?? "EUR")}
                       </span>
                     ) : (
-                      <span className="text-red-400">{r.error}</span>
+                      <span className="fm text-[#F87171]">{r.error}</span>
                     )}
                   </div>
                 );
@@ -149,14 +227,14 @@ export function PortfolioDashboard() {
 
         {/* Empty state */}
         {isLoaded && assets.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-700 py-20 text-center">
-            <p className="text-2xl font-bold text-slate-500">Портфель пуст</p>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#1C2640] py-20 text-center">
+            <p className="fb text-2xl font-bold text-[#3E5070]">Портфель пуст</p>
+            <p className="fm mt-2 text-sm text-[#2A3A50]">
               Добавьте первый актив, чтобы начать отслеживание
             </p>
             <button
               onClick={() => setShowAddModal(true)}
-              className="mt-6 rounded-lg bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-sky-500"
+              className="fm mt-6 rounded-lg bg-[#F59E0B] px-6 py-2.5 text-sm font-bold text-[#0B1120] hover:bg-[#FCD34D] uppercase tracking-wider transition-colors"
             >
               + Добавить актив
             </button>
@@ -166,20 +244,28 @@ export function PortfolioDashboard() {
         {/* ── OVERVIEW ── */}
         {tab === "overview" && assets.length > 0 && (
           <div className="space-y-8">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-              <HeroMetrics summary={summary} latestValueCents={latestValue} />
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
+              <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
+                <HeroMetrics summary={summary} latestValueCents={latestValue} />
+              </div>
+              <a href="/analyst" className="block rounded-2xl border border-[#1C2640] bg-[#0E1830] p-5 hover:border-[#F59E0B]/30 transition-colors group">
+                <HealthScoreCard health={health} compact />
+                <p className="fm mt-3 text-center text-xs text-[#2A3A50] group-hover:text-[#F59E0B] transition-colors uppercase tracking-wider">
+                  Open AI Analyst →
+                </p>
+              </a>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+            <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
               <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-300">Динамика портфеля</h2>
-                <div className="flex items-center gap-4 text-xs text-slate-500">
+                <h2 className="fm text-xs font-semibold uppercase tracking-wider text-[#4E6080]">Динамика портфеля</h2>
+                <div className="flex items-center gap-4 fm text-xs text-[#3E5070]">
                   <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-0.5 w-5 rounded bg-emerald-500" />
+                    <span className="inline-block h-0.5 w-5 rounded bg-[#4ADE80]" />
                     Стоимость
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="inline-block h-0.5 w-5 rounded bg-slate-500" />
+                    <span className="inline-block h-0.5 w-5 rounded bg-[#2A3A50]" />
                     Вложено
                   </span>
                 </div>
@@ -188,13 +274,13 @@ export function PortfolioDashboard() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-                <h2 className="mb-1 text-sm font-semibold text-slate-300">Распределение</h2>
+              <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
+                <h2 className="fm mb-1 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">Распределение</h2>
                 <AllocationChart byClass={summary.byClass} />
               </div>
 
-              <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-                <h2 className="mb-4 text-sm font-semibold text-slate-300">По классам активов</h2>
+              <div className="lg:col-span-2 rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
+                <h2 className="fm mb-4 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">По классам активов</h2>
                 <div className="space-y-3">
                   {Object.entries(summary.byClass)
                     .sort((a, b) => b[1].totalCurrentValueCents - a[1].totalCurrentValueCents)
@@ -204,27 +290,27 @@ export function PortfolioDashboard() {
                         : 0;
                       const isPos = s.unrealizedPnLCents >= 0;
                       return (
-                        <div key={cls} className="flex items-center gap-4">
-                          <p className="w-32 shrink-0 text-sm capitalize text-slate-400">
+                        <div key={cls} className="flex items-center gap-2 sm:gap-4">
+                          <p className="fm w-20 sm:w-32 shrink-0 text-xs capitalize text-[#4E6080] truncate">
                             {cls.replace(/_/g, " ")}
                           </p>
-                          <div className="flex-1">
-                            <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+                          <div className="flex-1 min-w-0">
+                            <div className="h-1.5 overflow-hidden rounded-full bg-[#162035]">
                               <div
-                                className="h-full rounded-full bg-sky-500"
+                                className="h-full rounded-full bg-[#F59E0B]"
                                 style={{ width: `${(s.allocation * 100).toFixed(1)}%` }}
                               />
                             </div>
                           </div>
-                          <p className="w-10 text-right text-xs tabular-nums text-slate-400">
+                          <p className="fm w-9 sm:w-10 text-right text-xs tabular-nums text-[#4E6080]">
                             {(s.allocation * 100).toFixed(1)}%
                           </p>
-                          <p className="w-24 text-right text-sm tabular-nums font-medium text-white">
-                            {formatCents(s.totalCurrentValueCents)}
+                          <p className="fm w-20 sm:w-24 text-right text-sm tabular-nums font-medium text-[#E8F0FF]">
+                            {fmtCents(s.totalCurrentValueCents)}
                           </p>
                           <p className={clsx(
-                            "w-20 text-right text-sm tabular-nums font-semibold",
-                            isPos ? "text-emerald-400" : "text-red-400",
+                            "fm hidden sm:block w-20 text-right text-sm tabular-nums font-semibold",
+                            isPos ? "text-[#4ADE80]" : "text-[#F87171]",
                           )}>
                             {isPos ? "+" : ""}{(pnlPct * 100).toFixed(1)}%
                           </p>
@@ -234,16 +320,18 @@ export function PortfolioDashboard() {
                 </div>
               </div>
             </div>
+
+            <TopMovers assets={assets} onViewAll={() => setTab("holdings")} />
           </div>
         )}
 
         {/* ── HOLDINGS ── */}
         {tab === "holdings" && assets.length > 0 && (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+            <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
               <HeroMetrics summary={summary} latestValueCents={latestValue} />
             </div>
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-2">
+            <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-2">
               <AssetTable assets={assets} metrics={summary.assetBreakdown} />
             </div>
           </div>
@@ -254,17 +342,17 @@ export function PortfolioDashboard() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-white">Отчёт по налогам IRPF</h2>
-                <p className="text-sm text-slate-500">
+                <h2 className="fb text-xl font-bold text-[#E8F0FF]">Отчёт по налогам IRPF</h2>
+                <p className="fm text-sm text-[#4E6080]">
                   Испания — прирост капитала (base del ahorro)
                 </p>
               </div>
-              <div className="flex items-center gap-2 text-sm">
-                <label className="text-slate-500">Год:</label>
+              <div className="flex items-center gap-2 fm text-sm">
+                <label className="text-[#4E6080]">Год:</label>
                 <select
                   value={taxYear}
                   onChange={(e) => setTaxYear(Number(e.target.value))}
-                  className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  className="rounded-lg border border-[#1C2640] bg-[#0E1830] px-3 py-1.5 text-[#E8F0FF] focus:outline-none focus:ring-1 focus:ring-[#F59E0B]/40"
                 >
                   {taxYears.map((y) => (
                     <option key={y} value={y}>{y}</option>

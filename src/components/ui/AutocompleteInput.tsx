@@ -16,6 +16,12 @@ export interface Suggestion {
   meta?: string;
   /** Small image shown in dropdown */
   iconUrl?: string | null;
+  /** Full-size image URL saved to asset */
+  imageUrl?: string;
+  /** Thumbnail URL saved to asset */
+  imageThumbnailUrl?: string;
+  /** Currency override */
+  currency?: string;
 }
 
 interface Props {
@@ -143,23 +149,23 @@ export function AutocompleteInput({
           placeholder={placeholder}
           autoComplete="off"
           className={clsx(
-            "w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white",
-            "placeholder-slate-600 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500",
+            "w-full rounded-lg border border-[#1C2640] bg-[#080F1C] px-3 py-2 text-sm text-[#E8F0FF]",
+            "placeholder:text-[#2A3A50] focus:border-[#F59E0B]/50 focus:outline-none focus:ring-1 focus:ring-[#F59E0B]/20",
             loading && "pr-8",
             className,
           )}
         />
         {loading && (
-          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs animate-spin">
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#4E6080] text-xs animate-spin">
             ↻
           </span>
         )}
       </div>
 
       {showDropdown && (
-        <ul className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+        <ul className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border border-[#1C2640] bg-[#0E1830] shadow-2xl">
           {loading && items.length === 0 && (
-            <li className="px-4 py-3 text-sm text-slate-500">Поиск...</li>
+            <li className="fm px-4 py-3 text-sm text-[#4E6080]">Поиск...</li>
           )}
           {items.map((item, i) => (
             <li
@@ -169,8 +175,8 @@ export function AutocompleteInput({
               className={clsx(
                 "flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition-colors",
                 i === activeIndex
-                  ? "bg-sky-600/20 text-white"
-                  : "text-slate-300 hover:bg-slate-800",
+                  ? "bg-[#F59E0B]/10 text-[#E8F0FF]"
+                  : "text-[#B0C4DE] hover:bg-[#162035]",
               )}
             >
               {item.iconUrl && (
@@ -178,18 +184,19 @@ export function AutocompleteInput({
                 <img
                   src={item.iconUrl}
                   alt=""
-                  className="h-8 w-8 shrink-0 rounded object-contain"
+                  className="h-8 w-8 shrink-0 rounded object-contain bg-[#080F1C]"
                 />
               )}
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{item.label}</p>
                 {item.meta && (
-                  <p className="truncate text-xs text-slate-500">{item.meta}</p>
+                  <p className="fm truncate text-xs text-[#4E6080]">{item.meta}</p>
                 )}
               </div>
               {item.priceCents != null && (
-                <span className="shrink-0 text-xs font-semibold text-emerald-400">
-                  {(item.priceCents / 100).toFixed(2)} €
+                <span className="fm shrink-0 text-xs font-semibold text-[#4ADE80]">
+                  {item.currency === "GBP" ? "£" : item.currency === "USD" ? "$" : "€"}
+                  {(item.priceCents / 100).toFixed(2)}
                 </span>
               )}
             </li>

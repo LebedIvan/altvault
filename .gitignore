@@ -34,3 +34,11 @@ Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
 .claude/
+
+.vercel
+
+# Sensitive data — never commit
+data/users.json
+data/preregistrations.json
+data/ab-events.jsonl
+data/ab-state.json

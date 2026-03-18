@@ -19,6 +19,7 @@ export const MOCK_ASSETS: Asset[] = [
     platformFeeRate: 0.025,
     holdingCostCents: 500, // €5/month
     tags: ["pokemon", "graded", "base-set"],
+    priceSnapshots: [],
     createdAt: new Date("2023-03-15"),
     updatedAt: new Date("2025-03-01"),
     transactions: [
@@ -49,6 +50,7 @@ export const MOCK_ASSETS: Asset[] = [
     platformFeeRate: 0.10,
     holdingCostCents: 0,
     tags: ["icons", "retired", "sealed"],
+    priceSnapshots: [],
     createdAt: new Date("2023-11-20"),
     updatedAt: new Date("2025-03-01"),
     transactions: [
@@ -79,6 +81,7 @@ export const MOCK_ASSETS: Asset[] = [
     platformFeeRate: 0.15,
     holdingCostCents: 0,
     tags: ["rifle", "field-tested"],
+    priceSnapshots: [],
     createdAt: new Date("2024-01-10"),
     updatedAt: new Date("2025-03-01"),
     transactions: [
@@ -121,6 +124,7 @@ export const MOCK_ASSETS: Asset[] = [
     platformFeeRate: 0.015,
     holdingCostCents: 200,
     tags: ["silver", "bullion", "maple-leaf"],
+    priceSnapshots: [],
     createdAt: new Date("2023-06-01"),
     updatedAt: new Date("2025-03-01"),
     transactions: [
@@ -150,6 +154,7 @@ export const MOCK_ASSETS: Asset[] = [
     platformFeeRate: 0.05,
     holdingCostCents: 0,
     tags: ["royalty", "spotify", "streaming"],
+    priceSnapshots: [],
     createdAt: new Date("2024-02-14"),
     updatedAt: new Date("2025-03-01"),
     transactions: [
@@ -179,6 +184,7 @@ export const MOCK_ASSETS: Asset[] = [
     platformFeeRate: 0.10,
     holdingCostCents: 1_500, // €15/year → ~€1.25/month
     tags: ["fintech", "premium", "dot-com"],
+    priceSnapshots: [],
     createdAt: new Date("2022-08-10"),
     updatedAt: new Date("2025-03-01"),
     transactions: [

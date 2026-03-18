@@ -7,9 +7,13 @@ const VALID_SYMBOLS: Record<string, string> = {
   "ETH":      "ETH-USD",
   "GOLD":     "GC=F",
   "SILVER":   "SI=F",
+  "PLATINUM": "PL=F",
+  "PALLADIUM":"PA=F",
 };
 
 const RANGE_TO_YAHOO: Record<string, { range: string; interval: string }> = {
+  "MTD": { range: "1mo",  interval: "1d"  },
+  "YTD": { range: "ytd",  interval: "1d"  },
   "1M":  { range: "1mo",  interval: "1d"  },
   "3M":  { range: "3mo",  interval: "1d"  },
   "6M":  { range: "6mo",  interval: "1d"  },
@@ -78,7 +82,7 @@ export async function GET(
 
     for (let i = 0; i < timestamps.length; i++) {
       const ts = timestamps[i];
-      const close = closes[i] ?? lastClose;
+      const close: number | null = (closes[i] as number | null | undefined) ?? lastClose;
       if (ts == null || close == null) continue;
       lastClose = close;
       points.push({

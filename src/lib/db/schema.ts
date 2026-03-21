@@ -95,6 +95,13 @@ export const gamesTech = pgTable("games_tech", {
   releaseYear:       integer("release_year"),
   imageUrl:          text("image_url"),
   priceChartingUrl:  text("pricecharting_url"),
+  cexBoxId:          text("cex_box_id"),
+  cexSellPriceCents: integer("cex_sell_price_cents"),
+  cexCashPriceCents: integer("cex_cash_price_cents"),
+  igdbId:            integer("igdb_id"),
+  description:       text("description"),
+  genres:            jsonb("genres").$type<string[]>().default([]),
+  coverUrl:          text("cover_url"),
   sources:           jsonb("sources").$type<string[]>().default([]),
   lastSyncedAt:      timestamp("last_synced_at", { mode: "string" }).defaultNow(),
 }, (t) => ({

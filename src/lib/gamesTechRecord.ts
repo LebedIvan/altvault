@@ -1,28 +1,39 @@
 /**
- * Canonical Games & Tech record — merged from PriceCharting and optionally IGDB.
- * Used by gamesTechDb.ts, scripts/sync-games-tech.ts, and /api/search/games-tech.
+ * Canonical Games & Tech record — merged from CeX, PriceCharting, and IGDB.
+ * Used by gamesTechDb.ts, scripts/sync-*.ts, and /api/search/games-tech.
  */
 export interface GamesTechRecord {
   // ── Identity ────────────────────────────────────────────────────────────────
-  id: string;              // PriceCharting product ID, or "static-xxx" for manual entries
+  id: string;              // PriceCharting product ID, CeX boxId, or "igdb-NNN"
 
   // ── Catalog ─────────────────────────────────────────────────────────────────
   name: string;
-  platform: string;        // "PlayStation 2", "Nintendo Switch", "Nintendo 64", etc.
-  category: string;        // "game" | "console" | "handheld" | "accessory"
+  platform: string;        // "PlayStation 2", "Nintendo Switch", "iPhone", etc.
+  category: string;        // "game" | "console" | "handheld" | "phone" | "tablet" | "laptop" | "camera" | "wearable" | "accessory"
 
-  // ── Prices (USD cents, from PriceCharting) ───────────────────────────────────
-  loosePriceCents: number | null;   // cartridge/disc only, no box
-  cibPriceCents:   number | null;   // complete in box
-  newPriceCents:   number | null;   // sealed/new
-  priceUpdatedAt:  string | null;   // ISO timestamp
+  // ── PriceCharting prices (USD cents) ─────────────────────────────────────────
+  loosePriceCents: number | null;
+  cibPriceCents:   number | null;
+  newPriceCents:   number | null;
+  priceUpdatedAt:  string | null;
 
-  // ── Metadata ────────────────────────────────────────────────────────────────
+  // ── CeX prices (GBP cents) ───────────────────────────────────────────────────
+  cexBoxId:          string | null;   // CeX product boxId
+  cexSellPriceCents: number | null;   // what CeX sells it for
+  cexCashPriceCents: number | null;   // what CeX pays in cash
+
+  // ── IGDB metadata ────────────────────────────────────────────────────────────
+  igdbId:      number | null;
+  description: string | null;
+  genres:      string[];
+  coverUrl:    string | null;   // high-res cover image URL
+
+  // ── General metadata ─────────────────────────────────────────────────────────
   releaseYear:      number | null;
-  imageUrl:         string | null;
+  imageUrl:         string | null;   // fallback image (PriceCharting or CeX)
   priceChartingUrl: string | null;
 
   // ── Tracking ────────────────────────────────────────────────────────────────
-  sources:      string[];    // e.g. ["pricecharting", "igdb"]
-  lastSyncedAt: string;      // ISO timestamp
+  sources:      string[];    // e.g. ["cex", "pricecharting", "igdb"]
+  lastSyncedAt: string;
 }

@@ -77,7 +77,7 @@ export function AssetPageClient() {
       <header className="sticky top-0 z-20 border-b border-[#1C2640] bg-[#0B1120]/90 backdrop-blur">
         <div className="mx-auto flex max-w-screen-xl items-center gap-4 px-6 py-3">
           <Link
-            href="/"
+            href="/app"
             className="flex items-center gap-2 text-[#4E6080] hover:text-[#B0C4DE] transition-colors text-sm"
           >
             ← Портфель

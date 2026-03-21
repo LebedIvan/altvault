@@ -128,7 +128,7 @@ export function AssetHeader({ asset, metrics, refreshing, priceSource, refreshEr
         <div className="flex flex-1 flex-col justify-between p-4 sm:p-6">
           {/* Breadcrumb */}
           <div className="mb-3 flex items-center gap-2 text-xs text-[#4E6080]">
-            <Link href="/" className="hover:text-[#B0C4DE] transition-colors">
+            <Link href="/app" className="hover:text-[#B0C4DE] transition-colors">
               Портфель
             </Link>
             <span>/</span>

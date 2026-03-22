@@ -7,7 +7,7 @@
  * Server-side only.
  */
 import { eq, like } from "drizzle-orm";
-import { db, ebayCache, legoSets } from "./db";
+import { db, ebayCache, legoSets, skinportCache } from "./db";
 import { fetchEbaySold } from "./ebaySold";
 import type { SoldItem } from "./ebaySold";
 
@@ -224,8 +224,7 @@ async function fetchCs2Sources(externalId: string | null, name: string): Promise
     }
   } catch { /* fall through */ }
 
-  const ctSkinportPrice = ctItem?.skinport?.suggested_amount_avg ?? null;
-  const ctSteamPrice    = ctItem?.steam?.last_24h ?? null;
+  const ctSteamPrice = ctItem?.steam?.last_24h ?? null;
 
   const [ebay, skinport] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
@@ -255,11 +254,31 @@ function skinportSlug(marketHashName: string): string {
     .replace(/^-|-$/g, "");
 }
 
+const SKINPORT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
 async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
   const itemUrl = `https://skinport.com/item/${skinportSlug(itemName)}`;
+
+  // ── 1. Check DB cache ──────────────────────────────────────────────────────
   try {
-    // Fetch specific item (market_hash_name filter returns suggested_price even with no active listings)
-    // and sales history in parallel
+    const rows = await db.select().from(skinportCache)
+      .where(eq(skinportCache.marketHashName, itemName))
+      .limit(1);
+    const row = rows[0];
+    if (row && new Date(row.expiresAt) > new Date()) {
+      const recentSales = (row.recentSales ?? undefined) as SoldItem[] | undefined;
+      return {
+        key: "skinport", label: "Skinport", currency: "EUR",
+        status: row.suggestedPriceCents ? "ok" : "unavailable",
+        priceCents: row.suggestedPriceCents ?? null,
+        recentSales,
+        meta: { minCents: row.minPriceCents ?? undefined, url: itemUrl },
+      };
+    }
+  } catch { /* DB unavailable — fall through to live fetch */ }
+
+  // ── 2. Fetch from Skinport API ─────────────────────────────────────────────
+  try {
     const authHeader = (() => {
       const id  = process.env.SKINPORT_CLIENT_ID;
       const sec = process.env.SKINPORT_CLIENT_SECRET;
@@ -292,7 +311,6 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
       const items = (await itemRes.value.json()) as {
         market_hash_name: string; suggested_price: number | null; min_price: number | null;
       }[];
-      // With market_hash_name filter the array has at most one entry
       const item = items[0] ?? items.find((i) => i.market_hash_name === itemName);
       if (item) {
         priceCents = item.suggested_price ? Math.round(item.suggested_price * 100) : null;
@@ -324,6 +342,21 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
       const sorted = [...recentSales].map((s) => s.price).sort((a, b) => a - b);
       priceCents = Math.round(sorted[Math.floor(sorted.length / 2)]! * 100);
       note = "No active listings — price from recent sales";
+    }
+
+    // ── 3. Save to DB cache ──────────────────────────────────────────────────
+    const expiresAt = new Date(Date.now() + SKINPORT_TTL_MS).toISOString();
+    try {
+      await db.delete(skinportCache).where(eq(skinportCache.marketHashName, itemName));
+      await db.insert(skinportCache).values({
+        marketHashName:      itemName,
+        suggestedPriceCents: priceCents ?? undefined,
+        minPriceCents:       minCents   ?? undefined,
+        recentSales:         recentSales ?? null,
+        expiresAt,
+      });
+    } catch (err) {
+      console.error("[skinportCache] save failed:", err);
     }
 
     return {

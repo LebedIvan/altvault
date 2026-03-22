@@ -119,6 +119,17 @@ export const ebayCache = pgTable("ebay_cache", {
   updatedAt: timestamp("updated_at", { mode: "string" }).defaultNow(),
 });
 
+// ─── Skinport cache ────────────────────────────────────────────────────────────
+
+export const skinportCache = pgTable("skinport_cache", {
+  marketHashName:      text("market_hash_name").primaryKey(),
+  suggestedPriceCents: integer("suggested_price_cents"),
+  minPriceCents:       integer("min_price_cents"),
+  recentSales:         jsonb("recent_sales").$type<Array<{ date: string; price: number; currency: string; title: string }>>(),
+  expiresAt:           timestamp("expires_at", { mode: "string" }).notNull(),
+  updatedAt:           timestamp("updated_at", { mode: "string" }).defaultNow(),
+});
+
 // ─── Pokémon Cards ─────────────────────────────────────────────────────────────
 
 export const pokemonCards = pgTable("pokemon_cards", {

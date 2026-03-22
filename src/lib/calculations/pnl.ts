@@ -132,13 +132,16 @@ export function computeAssetMetrics(asset: Asset, now: Date = new Date()): Asset
     unrealizedCostCents === 0 ? 0 : unrealizedPnLCents / unrealizedCostCents;
 
   // Annualized ROI using CAGR formula: (endValue / startValue)^(365/days) - 1
+  // Require ≥30 days to avoid astronomical values from small holding periods;
+  // cap at ±999% so the UI never shows scientific notation.
+  const rawRatio =
+    avgDaysHeld < 30 || unrealizedCostCents === 0
+      ? 1
+      : (unrealizedCostCents + unrealizedPnLCents) / unrealizedCostCents;
   const annualizedROI =
-    avgDaysHeld < 1 || unrealizedCostCents === 0
-      ? 0
-      : Math.pow(
-          (unrealizedCostCents + unrealizedPnLCents) / unrealizedCostCents,
-          DAYS_PER_YEAR / avgDaysHeld,
-        ) - 1;
+    rawRatio <= 0
+      ? -1 // total loss
+      : Math.max(-9.99, Math.min(9.99, Math.pow(rawRatio, DAYS_PER_YEAR / avgDaysHeld) - 1));
 
   return {
     assetId: asset.id,

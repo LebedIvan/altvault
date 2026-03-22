@@ -81,6 +81,37 @@ function EbayTabContent({ source }: { source: PriceSource }) {
   const currency = source.currency;
   const trending = source.meta?.avgCents;
 
+  // Handle non-ok statuses first
+  if (source.status === "no_key") {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          eBay API key not configured. Set <code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-slate-400">EBAY_APP_ID</code> to see sold prices.
+        </p>
+        {source.meta?.url && (
+          <a href={source.meta.url} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-sky-500 hover:text-sky-400 transition-colors">
+            Search eBay sold listings ↗
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (source.status === "unavailable") {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">No recent sold listings found on eBay for this item.</p>
+        {source.meta?.url && (
+          <a href={source.meta.url} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-sky-500 hover:text-sky-400 transition-colors">
+            Search manually on eBay ↗
+          </a>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Stats row */}
@@ -143,7 +174,15 @@ function EbayTabContent({ source }: { source: PriceSource }) {
           )}
         </div>
       ) : (
-        <p className="text-xs text-slate-600">No recent sales found on eBay.</p>
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">No recent sold listings found.</p>
+          {source.meta?.url && (
+            <a href={source.meta.url} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-sky-500 hover:text-sky-400 transition-colors">
+              Search on eBay ↗
+            </a>
+          )}
+        </div>
       )}
     </div>
   );

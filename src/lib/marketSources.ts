@@ -70,12 +70,16 @@ async function saveToCache(cacheKey: string, sources: PriceSource[]): Promise<vo
 // ─── eBay source builder (universal) ─────────────────────────────────────────
 
 async function buildEbaySource(query: string): Promise<PriceSource> {
+  const searchUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+
   if (!process.env.EBAY_APP_ID) {
-    return { key: "ebay", label: "eBay (sold)", priceCents: null, currency: "USD", status: "no_key" };
+    return { key: "ebay", label: "eBay (sold)", priceCents: null, currency: "USD", status: "no_key",
+      meta: { url: searchUrl, note: query } };
   }
   const data = await fetchEbaySold(query);
   if (!data || data.source === "simulated") {
-    return { key: "ebay", label: "eBay (sold)", priceCents: null, currency: "USD", status: "unavailable" };
+    return { key: "ebay", label: "eBay (sold)", priceCents: null, currency: "USD", status: "unavailable",
+      meta: { url: searchUrl, note: query } };
   }
   const currency = (data.currency === "EUR" ? "EUR" : data.currency === "GBP" ? "GBP" : "USD") as "EUR" | "USD" | "GBP";
   return {
@@ -90,6 +94,8 @@ async function buildEbaySource(query: string): Promise<PriceSource> {
       maxCents: data.highestPrice  ? Math.round(data.highestPrice  * 100) : undefined,
       avgCents: data.averagePrice  ? Math.round(data.averagePrice  * 100) : undefined,
       count:    data.totalSales,
+      url:      searchUrl,
+      note:     query,
     },
   };
 }

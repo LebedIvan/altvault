@@ -81,19 +81,15 @@ export async function setCachedEbay(key: string, data: EbaySoldData): Promise<vo
   const expiresAt = new Date(Date.now() + CACHE_TTL_MS);
   memCache.set(key, { data, expiresAt: expiresAt.getTime() });
   try {
+    await db.delete(ebayCache).where(eq(ebayCache.query, key));
     await db.insert(ebayCache).values({
       query:     key,
       data:      data as unknown as Record<string, unknown>,
       expiresAt: expiresAt.toISOString(),
-    }).onConflictDoUpdate({
-      target: ebayCache.query,
-      set: {
-        data:      data as unknown as Record<string, unknown>,
-        expiresAt: expiresAt.toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
     });
-  } catch { /* write failed — in-memory still protects */ }
+  } catch (err) {
+    console.error("[ebaySold] setCachedEbay failed for key:", key, err);
+  }
 }
 
 // ─── eBay Browse API (OAuth 2.0) ─────────────────────────────────────────────

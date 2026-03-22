@@ -58,18 +58,16 @@ async function saveToCache(
   sources: PriceSource[],
   params: { assetClass: string; externalId: string | null; name: string },
 ): Promise<void> {
-  const expiresAt = new Date(Date.now() + MARKET_TTL_MS);
+  const key       = KEY_PREFIX + cacheKey;
+  const expiresAt = new Date(Date.now() + MARKET_TTL_MS).toISOString();
+  const payload   = { sources, params } as unknown as Record<string, unknown>;
   try {
-    // Store params alongside sources so the cron can re-fetch without re-discovering them
-    const payload = { sources, params } as unknown as Record<string, unknown>;
-    await db
-      .insert(ebayCache)
-      .values({ query: KEY_PREFIX + cacheKey, data: payload, expiresAt: expiresAt.toISOString() })
-      .onConflictDoUpdate({
-        target: ebayCache.query,
-        set: { data: payload, expiresAt: expiresAt.toISOString(), updatedAt: new Date().toISOString() },
-      });
-  } catch { /* write failed */ }
+    // DELETE + INSERT is more reliable than onConflictDoUpdate across all Neon connection modes
+    await db.delete(ebayCache).where(eq(ebayCache.query, key));
+    await db.insert(ebayCache).values({ query: key, data: payload, expiresAt });
+  } catch (err) {
+    console.error("[marketSources] saveToCache failed for key:", key, err);
+  }
 }
 
 /** Returns all market cache entries — used by the cron job to refresh stale data */

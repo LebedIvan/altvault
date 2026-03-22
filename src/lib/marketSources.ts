@@ -211,16 +211,36 @@ async function fetchCs2Sources(externalId: string | null, name: string): Promise
   const itemName  = externalId ?? name;
   const ebayQuery = `${name} CS2 skin`;
 
-  const [ebay, skinport, csgotrader] = await Promise.allSettled([
+  // Fetch CSGO Trader JSON once — contains both Steam and Skinport aggregated prices
+  type CtEntry = { steam?: { last_24h?: number }; skinport?: { suggested_amount_avg?: number } };
+  let ctItem: CtEntry | null = null;
+  try {
+    const ctRes = await fetch("https://prices.csgotrader.app/latest/prices_v6.json", {
+      next: { revalidate: 3600 },
+    });
+    if (ctRes.ok) {
+      const ctAll = (await ctRes.json()) as Record<string, CtEntry>;
+      ctItem = ctAll[itemName] ?? null;
+    }
+  } catch { /* fall through */ }
+
+  const ctSkinportPrice = ctItem?.skinport?.suggested_amount_avg ?? null;
+  const ctSteamPrice    = ctItem?.steam?.last_24h ?? null;
+
+  const [ebay, skinport] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
-    fetchSkinportSource(itemName),
-    fetchCsgoTraderSource(itemName),
+    fetchSkinportSource(itemName, ctSkinportPrice),
   ]);
 
   return [
-    ebay.status        === "fulfilled" ? ebay.value        : fallback("ebay",       "eBay (sold)"),
-    skinport.status    === "fulfilled" ? skinport.value    : fallback("skinport",   "Skinport"),
-    csgotrader.status  === "fulfilled" ? csgotrader.value  : fallback("csgotrader", "CSGO Trader"),
+    ebay.status     === "fulfilled" ? ebay.value     : fallback("ebay",       "eBay (sold)"),
+    skinport.status === "fulfilled" ? skinport.value : fallback("skinport",   "Skinport"),
+    {
+      key: "csgotrader", label: "CSGO Trader", currency: "USD",
+      status: ctSteamPrice ? "ok" : "unavailable",
+      priceCents: ctSteamPrice ? Math.round(ctSteamPrice * 100) : null,
+      meta: { note: "Steam 24h avg (USD)" },
+    },
   ];
 }
 
@@ -235,7 +255,7 @@ function skinportSlug(marketHashName: string): string {
     .replace(/^-|-$/g, "");
 }
 
-async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
+async function fetchSkinportSource(itemName: string, ctSkinportPrice: number | null = null): Promise<PriceSource> {
   const itemUrl = `https://skinport.com/item/${skinportSlug(itemName)}`;
   try {
     const [listingsRes, historyRes] = await Promise.allSettled([
@@ -281,13 +301,16 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
       }
     }
 
-    // No active listing — derive price from recent sales median
+    // No active listing — try fallbacks in order
     let note: string | undefined;
     if (priceCents === null && recentSales && recentSales.length > 0) {
       const sorted = [...recentSales].map((s) => s.price).sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)]!;
-      priceCents = Math.round(median * 100);
+      priceCents = Math.round(sorted[Math.floor(sorted.length / 2)]! * 100);
       note = "No active listings — price from recent sales";
+    }
+    if (priceCents === null && ctSkinportPrice !== null) {
+      priceCents = Math.round(ctSkinportPrice * 100);
+      note = "No active listings — price from CSGO Trader aggregated data";
     }
 
     return {
@@ -302,24 +325,6 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
   }
 }
 
-async function fetchCsgoTraderSource(itemName: string): Promise<PriceSource> {
-  try {
-    const res = await fetch("https://prices.csgotrader.app/latest/prices_v6.json", {
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return fallback("csgotrader", "CSGO Trader");
-    const data = (await res.json()) as Record<string, { steam?: { last_24h?: number }; skinport?: { suggested_amount_avg?: number } }>;
-    const item = data[itemName];
-    const priceUsd = item?.steam?.last_24h ?? null;
-    return {
-      key: "csgotrader", label: "CSGO Trader", currency: "USD", status: priceUsd ? "ok" : "unavailable",
-      priceCents: priceUsd ? Math.round(priceUsd * 100) : null,
-      meta: { note: "Steam 24h avg (USD)" },
-    };
-  } catch {
-    return fallback("csgotrader", "CSGO Trader");
-  }
-}
 
 async function fetchMtgSources(_externalId: string | null, name: string): Promise<PriceSource[]> {
   // "Beetleback Chief — The List #PCA-40" → "Beetleback Chief"

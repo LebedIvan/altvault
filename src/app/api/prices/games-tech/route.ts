@@ -19,10 +19,11 @@ async function fetchPriceCharting(externalId: string): Promise<{
   loose: number | null; cib: number | null; newP: number | null;
 } | null> {
   const apiKey = process.env.PRICECHARTING_API_KEY;
-  if (!apiKey) return null;
+  // Static slugs (e.g. "static-ps2slim") are not real PriceCharting IDs
+  if (!apiKey || externalId.startsWith("static-")) return null;
 
   const res = await fetch(
-    `https://www.pricecharting.com/api/product?id=${apiKey}&status=price&id=${externalId}`,
+    `https://www.pricecharting.com/api/product?id=${encodeURIComponent(externalId)}&api_key=${apiKey}`,
     { next: { revalidate: 21600 } }
   );
   if (!res.ok) return null;

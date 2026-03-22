@@ -85,7 +85,7 @@ export const AssetSchema = z.object({
   /** Platform fee percentage as a decimal (e.g. 0.025 = 2.5%) */
   platformFeeRate: z.number().min(0).max(1),
   /** Monthly storage/insurance cost in cents */
-  holdingCostCents: z.number().int().nonnegative(),
+  holdingCostCents: z.number().int().nonnegative().default(0),
   transactions: z.array(TransactionSchema),
   tags: z.array(z.string()).default([]),
   /** Card/skin image URL for display */

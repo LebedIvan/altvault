@@ -161,7 +161,9 @@ export function PortfolioProvider({
     if (isAuthed) {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = setTimeout(() => {
-        saveToServer(assets).catch(() => {});
+        saveToServer(assets).then((ok) => {
+          if (!ok) console.error("[portfolio] saveToServer failed — portfolio may not be persisted");
+        }).catch((err) => console.error("[portfolio] saveToServer threw:", err));
       }, SYNC_DEBOUNCE_MS);
     }
   }, [assets, isLoaded, isAuthed, storageKey]);

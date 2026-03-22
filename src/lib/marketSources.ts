@@ -375,7 +375,9 @@ async function fetchComicsSources(_externalId: string | null, name: string): Pro
 }
 
 async function fetchGamesTechSources(externalId: string | null, name: string): Promise<PriceSource[]> {
-  const ebayQuery = `${name} game`;
+  // Strip " · Platform" suffix (e.g. "PS2 Slim Console · Sony" → "PS2 Slim Console")
+  const cleanName = name.split(" · ")[0]?.trim() ?? name;
+  const ebayQuery = cleanName;
 
   const [ebay, pc] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
@@ -390,7 +392,8 @@ async function fetchGamesTechSources(externalId: string | null, name: string): P
 
 async function fetchPriceChartingSource(externalId: string | null): Promise<PriceSource> {
   const apiKey = process.env.PRICECHARTING_API_KEY;
-  if (!apiKey || !externalId) {
+  // Static slugs (e.g. "static-ps2slim") are internal fallbacks, not real PriceCharting IDs
+  if (!apiKey || !externalId || externalId.startsWith("static-")) {
     return { key: "pricecharting", label: "PriceCharting", priceCents: null, currency: "USD", status: apiKey ? "unavailable" : "no_key" };
   }
   try {

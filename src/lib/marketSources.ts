@@ -211,36 +211,52 @@ async function fetchCs2Sources(externalId: string | null, name: string): Promise
   const itemName  = externalId ?? name;
   const ebayQuery = `${name} CS2 skin`;
 
-  // Fetch CSGO Trader JSON once — contains both Steam and Skinport aggregated prices
-  type CtEntry = { steam?: { last_24h?: number }; skinport?: { suggested_amount_avg?: number } };
-  let ctItem: CtEntry | null = null;
-  try {
-    const ctRes = await fetch("https://prices.csgotrader.app/latest/prices_v6.json", {
-      next: { revalidate: 3600 },
-    });
-    if (ctRes.ok) {
-      const ctAll = (await ctRes.json()) as Record<string, CtEntry>;
-      ctItem = ctAll[itemName] ?? null;
-    }
-  } catch { /* fall through */ }
-
-  const ctSteamPrice = ctItem?.steam?.last_24h ?? null;
-
-  const [ebay, skinport] = await Promise.allSettled([
+  const [ebay, skinport, steam] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
     fetchSkinportSource(itemName),
+    fetchSteamMarketSource(itemName),
   ]);
 
   return [
-    ebay.status     === "fulfilled" ? ebay.value     : fallback("ebay",       "eBay (sold)"),
-    skinport.status === "fulfilled" ? skinport.value : fallback("skinport",   "Skinport"),
-    {
-      key: "csgotrader", label: "CSGO Trader", currency: "USD",
-      status: ctSteamPrice ? "ok" : "unavailable",
-      priceCents: ctSteamPrice ? Math.round(ctSteamPrice * 100) : null,
-      meta: { note: "Steam 24h avg (USD)" },
-    },
+    ebay.status     === "fulfilled" ? ebay.value     : fallback("ebay",     "eBay (sold)"),
+    skinport.status === "fulfilled" ? skinport.value : fallback("skinport", "Skinport"),
+    steam.status    === "fulfilled" ? steam.value    : fallback("steam",    "Steam Market"),
   ];
+}
+
+/** Parse "7,94 €" / "7.94€" → cents */
+function parseEurCents(s: string | undefined): number | null {
+  if (!s) return null;
+  const cleaned = s.replace(/[^\d,.]/g, "");
+  const normalized = cleaned.includes(",") && !cleaned.includes(".")
+    ? cleaned.replace(",", ".")
+    : cleaned.replace(",", "");
+  const num = parseFloat(normalized);
+  return isNaN(num) || num <= 0 ? null : Math.round(num * 100);
+}
+
+async function fetchSteamMarketSource(itemName: string): Promise<PriceSource> {
+  const pageUrl = `https://steamcommunity.com/market/listings/730/${encodeURIComponent(itemName)}`;
+  try {
+    const res = await fetch(
+      `https://steamcommunity.com/market/priceoverview/?appid=730&currency=3&market_hash_name=${encodeURIComponent(itemName)}`,
+      { headers: { "User-Agent": "Vaulty/1.0" }, next: { revalidate: 3600 } },
+    );
+    if (!res.ok) return fallback("steam", "Steam Market");
+    const d = await res.json() as { success?: boolean; lowest_price?: string; median_price?: string; volume?: string };
+    if (!d.success) return fallback("steam", "Steam Market");
+    const medianCents = parseEurCents(d.median_price);
+    const lowestCents = parseEurCents(d.lowest_price);
+    const volume      = d.volume ? parseInt(d.volume.replace(/\D/g, ""), 10) || null : null;
+    return {
+      key: "steam", label: "Steam Market", currency: "EUR",
+      status: (medianCents ?? lowestCents) ? "ok" : "unavailable",
+      priceCents: medianCents ?? lowestCents,
+      meta: { minCents: lowestCents ?? undefined, count: volume ?? undefined, url: pageUrl },
+    };
+  } catch {
+    return fallback("steam", "Steam Market");
+  }
 }
 
 /** "AWP | Asiimov (Field-Tested)" → "awp-asiimov-field-tested" */
@@ -256,119 +272,164 @@ function skinportSlug(marketHashName: string): string {
 
 const SKINPORT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+interface SkinportItem {
+  market_hash_name: string;
+  currency:         string;
+  suggested_price:  number | null;
+  min_price:        number | null;
+  max_price:        number | null;
+  mean_price:       number | null;
+  median_price:     number | null;
+  quantity:         number;
+}
+
+/**
+ * Fetch the full Skinport catalog once per hour (Next.js data cache).
+ * The API does NOT support per-item filtering — only app_id, currency, tradable are allowed.
+ */
+async function fetchSkinportCatalog(): Promise<SkinportItem[] | null> {
+  try {
+    const res = await fetch("https://api.skinport.com/v1/items?app_id=730&currency=EUR", {
+      headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" },
+      next: { revalidate: 3600 }, // Next.js data cache — shared across invocations
+    });
+    if (!res.ok) {
+      console.error(`[skinport] catalog HTTP ${res.status} ${res.statusText}`);
+      return null;
+    }
+    return (await res.json()) as SkinportItem[];
+  } catch (err) {
+    console.error("[skinport] catalog fetch failed:", err);
+    return null;
+  }
+}
+
 async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
   const itemUrl = `https://skinport.com/item/${skinportSlug(itemName)}`;
 
-  // ── 1. Check DB cache ──────────────────────────────────────────────────────
+  // ── 1. DB cache read (preserves accumulated price history) ─────────────────
+  let existingHistory: SoldItem[] = [];
   try {
     const rows = await db.select().from(skinportCache)
       .where(eq(skinportCache.marketHashName, itemName))
       .limit(1);
     const row = rows[0];
+    existingHistory = (row?.recentSales as SoldItem[] | null) ?? [];
+
     if (row && new Date(row.expiresAt) > new Date()) {
-      const recentSales = (row.recentSales ?? undefined) as SoldItem[] | undefined;
+      // Cache is fresh — return immediately
       return {
         key: "skinport", label: "Skinport", currency: "EUR",
         status: row.suggestedPriceCents ? "ok" : "unavailable",
-        priceCents: row.suggestedPriceCents ?? null,
-        recentSales,
-        meta: { minCents: row.minPriceCents ?? undefined, url: itemUrl },
+        priceCents:  row.suggestedPriceCents ?? null,
+        recentSales: existingHistory.length > 0 ? existingHistory : undefined,
+        meta: {
+          minCents: row.minPriceCents  ?? undefined,
+          maxCents: row.maxPriceCents  ?? undefined,
+          count:    row.quantity       ?? undefined,
+          url:      itemUrl,
+        },
       };
     }
-  } catch { /* DB unavailable — fall through to live fetch */ }
+  } catch { /* DB unavailable — fall through */ }
 
-  // ── 2. Fetch from Skinport API ─────────────────────────────────────────────
-  try {
-    const authHeader = (() => {
-      const id  = process.env.SKINPORT_CLIENT_ID;
-      const sec = process.env.SKINPORT_CLIENT_SECRET;
-      if (id && sec) return `Basic ${Buffer.from(`${id}:${sec}`).toString("base64")}`;
-      return undefined;
-    })();
+  // ── 2. Fetch live from Skinport catalog + optional auth'd history ──────────
+  let priceCents: number | null = null;
+  let minCents:   number | null = null;
+  let maxCents:   number | null = null;
+  let quantity:   number | null = null;
+  let note:       string | undefined;
 
-    const [itemRes, historyRes] = await Promise.allSettled([
-      fetch(
-        `https://api.skinport.com/v1/items?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
-        { headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" }, next: { revalidate: 3600 } },
-      ),
-      fetch(
-        `https://api.skinport.com/v1/sales/history?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
-        {
-          headers: {
-            "User-Agent": "Vaulty/1.0",
-            Accept: "application/json",
-            ...(authHeader ? { Authorization: authHeader } : {}),
-          },
-          next: { revalidate: 3600 },
-        },
-      ),
-    ]);
-
-    // Current / suggested price from item endpoint
-    let priceCents: number | null = null;
-    let minCents:   number | null = null;
-    if (itemRes.status === "fulfilled" && itemRes.value.ok) {
-      const items = (await itemRes.value.json()) as {
-        market_hash_name: string; suggested_price: number | null; min_price: number | null;
-      }[];
-      const item = items.find((i) => i.market_hash_name === itemName);
-      if (item) {
-        priceCents = item.suggested_price ? Math.round(item.suggested_price * 100) : null;
-        minCents   = item.min_price       ? Math.round(item.min_price       * 100) : null;
-      }
+  // Catalog fetch (public, no auth needed, ~1h Next.js cache)
+  const catalog = await fetchSkinportCatalog();
+  if (catalog === null) {
+    console.error("[skinport] catalog unavailable for:", itemName);
+  } else {
+    const item = catalog.find((i) => i.market_hash_name === itemName);
+    if (!item) {
+      console.warn(`[skinport] "${itemName}" not found in catalog (${catalog.length} items)`);
+    } else {
+      priceCents = item.suggested_price ? Math.round(item.suggested_price * 100) : null;
+      minCents   = item.min_price       ? Math.round(item.min_price       * 100) : null;
+      maxCents   = item.max_price       ? Math.round(item.max_price       * 100) : null;
+      quantity   = item.quantity        || null;
     }
-
-    // Recent sales history — Skinport returns [[price, unix_ts], ...]
-    let recentSales: SoldItem[] | undefined;
-    if (historyRes.status === "fulfilled" && historyRes.value.ok) {
-      const raw = (await historyRes.value.json()) as unknown;
-      if (Array.isArray(raw) && raw.length > 0) {
-        const sales: SoldItem[] = (raw as [number, number][])
-          .slice(-20)
-          .reverse()
-          .map(([price, ts]) => ({
-            date:     new Date(ts * 1000).toISOString(),
-            price,
-            currency: "EUR",
-            title:    itemName,
-          }));
-        if (sales.length > 0) recentSales = sales;
-      }
-    }
-
-    // No active listing — fall back to recent sales median
-    let note: string | undefined;
-    if (priceCents === null && recentSales && recentSales.length > 0) {
-      const sorted = [...recentSales].map((s) => s.price).sort((a, b) => a - b);
-      priceCents = Math.round(sorted[Math.floor(sorted.length / 2)]! * 100);
-      note = "No active listings — price from recent sales";
-    }
-
-    // ── 3. Save to DB cache ──────────────────────────────────────────────────
-    const expiresAt = new Date(Date.now() + SKINPORT_TTL_MS).toISOString();
-    try {
-      await db.delete(skinportCache).where(eq(skinportCache.marketHashName, itemName));
-      await db.insert(skinportCache).values({
-        marketHashName:      itemName,
-        suggestedPriceCents: priceCents ?? undefined,
-        minPriceCents:       minCents   ?? undefined,
-        recentSales:         recentSales ?? null,
-        expiresAt,
-      });
-    } catch (err) {
-      console.error("[skinportCache] save failed:", err);
-    }
-
-    return {
-      key: "skinport", label: "Skinport", currency: "EUR",
-      status: priceCents ? "ok" : "unavailable",
-      priceCents,
-      recentSales,
-      meta: { minCents: minCents ?? undefined, url: itemUrl, note },
-    };
-  } catch {
-    return fallback("skinport", "Skinport");
   }
+
+  // Auth'd sales history (only if credentials are set)
+  let authSales: SoldItem[] | undefined;
+  const skinportAuth = (() => {
+    const id  = process.env.SKINPORT_CLIENT_ID;
+    const sec = process.env.SKINPORT_CLIENT_SECRET;
+    return id && sec ? `Basic ${Buffer.from(`${id}:${sec}`).toString("base64")}` : null;
+  })();
+  if (skinportAuth) {
+    try {
+      const hRes = await fetch(
+        `https://api.skinport.com/v1/sales/history?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
+        { headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json", Authorization: skinportAuth },
+          next: { revalidate: 3600 } },
+      );
+      if (hRes.ok) {
+        const raw = (await hRes.json()) as unknown;
+        if (Array.isArray(raw) && raw.length > 0) {
+          authSales = (raw as [number, number][]).slice(-30).reverse().map(([price, ts]) => ({
+            date: new Date(ts * 1000).toISOString(), price, currency: "EUR", title: itemName,
+          }));
+        }
+      }
+    } catch { /* no history */ }
+  }
+
+  // ── 3. Accumulate daily price snapshot for sparkline chart ─────────────────
+  // Auth sales take priority; otherwise build history from daily snapshots
+  let recentSales: SoldItem[] | undefined;
+  if (authSales && authSales.length > 0) {
+    recentSales = authSales;
+  } else {
+    // Add today's price to the accumulated history stored in DB
+    const today = new Date().toISOString().slice(0, 10);
+    const currentPriceFloat = priceCents !== null ? priceCents / 100 : null;
+    let history = existingHistory.filter((s) => s.date.slice(0, 10) !== today);
+    if (currentPriceFloat !== null) {
+      history = [...history, { date: new Date().toISOString(), price: currentPriceFloat, currency: "EUR", title: itemName }];
+    }
+    // Keep last 90 days, sorted ascending
+    history = history.sort((a, b) => a.date.localeCompare(b.date)).slice(-90);
+    if (history.length > 0) recentSales = history;
+  }
+
+  // If catalog had no listing, note it
+  if (priceCents === null) {
+    note = catalog
+      ? `"${itemName}" has no active Skinport listings`
+      : "Skinport catalog unavailable";
+  }
+
+  // ── 4. DB cache write (upsert preserving accumulated history) ──────────────
+  const expiresAt = new Date(Date.now() + SKINPORT_TTL_MS).toISOString();
+  try {
+    await db.delete(skinportCache).where(eq(skinportCache.marketHashName, itemName));
+    await db.insert(skinportCache).values({
+      marketHashName:      itemName,
+      suggestedPriceCents: priceCents ?? undefined,
+      minPriceCents:       minCents   ?? undefined,
+      maxPriceCents:       maxCents   ?? undefined,
+      quantity:            quantity   ?? undefined,
+      recentSales:         (recentSales ?? null) as typeof skinportCache.$inferInsert["recentSales"],
+      expiresAt,
+    });
+  } catch (err) {
+    console.error("[skinportCache] save failed:", err);
+  }
+
+  return {
+    key: "skinport", label: "Skinport", currency: "EUR",
+    status: priceCents ? "ok" : "unavailable",
+    priceCents,
+    recentSales,
+    meta: { minCents: minCents ?? undefined, maxCents: maxCents ?? undefined, count: quantity ?? undefined, url: itemUrl, note },
+  };
 }
 
 

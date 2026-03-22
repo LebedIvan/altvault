@@ -125,6 +125,9 @@ export const skinportCache = pgTable("skinport_cache", {
   marketHashName:      text("market_hash_name").primaryKey(),
   suggestedPriceCents: integer("suggested_price_cents"),
   minPriceCents:       integer("min_price_cents"),
+  maxPriceCents:       integer("max_price_cents"),
+  quantity:            integer("quantity"),
+  /** Accumulated daily price snapshots — grows over time, used for sparkline chart */
   recentSales:         jsonb("recent_sales").$type<Array<{ date: string; price: number; currency: string; title: string }>>(),
   expiresAt:           timestamp("expires_at", { mode: "string" }).notNull(),
   updatedAt:           timestamp("updated_at", { mode: "string" }).defaultNow(),

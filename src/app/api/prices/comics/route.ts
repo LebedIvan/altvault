@@ -141,20 +141,6 @@ async function fetchEbayMedianPrice(
   }
 }
 
-// ─── Simulated fallback ───────────────────────────────────────────────────────
-
-function seededRandom(seed: number): number {
-  const x = Math.sin(seed + 1) * 10000;
-  return x - Math.floor(x);
-}
-
-function simulatePrice(cvId: string): { priceCents: number; currency: string; source: "simulated" } {
-  const seed = cvId.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const base = 50 + (seed % 950); // $0.50–$10 base, scale up
-  const priceCents = Math.round((base + seededRandom(seed) * base * 2) * 100);
-  return { priceCents, currency: "USD", source: "simulated" };
-}
-
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET(request: Request) {
@@ -192,15 +178,14 @@ export async function GET(request: Request) {
     });
   }
 
-  // 4. Simulated fallback
-  const sim = simulatePrice(cvId);
+  // 4. No data available — return null rather than fake data
   return NextResponse.json({
-    priceCents: sim.priceCents,
-    currency:   sim.currency,
-    source:     sim.source,
+    priceCents: null,
+    currency:   "USD",
+    source:     "unavailable",
     query:      ebayQuery,
-    hint:       process.env.EBAY_APP_ID
-      ? undefined
-      : "Set EBAY_APP_ID for live eBay sold price data",
+    error:      process.env.EBAY_APP_ID
+      ? "No recent eBay sales found. Enter price manually."
+      : "Set EBAY_APP_ID for live eBay sold price data.",
   });
 }

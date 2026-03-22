@@ -9,16 +9,9 @@ import { fetchLatestPrice } from "@/lib/priceRefresh";
 import { AssetHeader } from "./AssetHeader";
 import { PriceHistoryChart } from "./PriceHistoryChart";
 import { AssetDetails } from "./AssetDetails";
-import { EbaySoldPanel } from "./EbaySoldPanel";
+import { PriceSourcesPanel } from "./PriceSourcesPanel";
 import { SellAssetModal } from "@/components/dashboard/SellAssetModal";
 import { EditAssetModal } from "@/components/dashboard/EditAssetModal";
-import type { Asset } from "@/types/asset";
-
-function buildComicsEbayQuery(asset: Asset): string {
-  const base = asset.name.split(" — ")[0]?.trim() ?? asset.name;
-  const gradePart = asset.grade ? ` CGC ${asset.grade}` : "";
-  return `${base}${gradePart} comic`;
-}
 
 export function AssetPageClient() {
   const { id } = useParams<{ id: string }>();
@@ -120,11 +113,16 @@ export function AssetPageClient() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
               <PriceHistoryChart asset={asset} />
-              {/* eBay sold data — shown when asset has a name to search */}
               {asset.name && (
-                <EbaySoldPanel
-                  query={asset.assetClass === "comics" ? buildComicsEbayQuery(asset) : asset.name}
+                <PriceSourcesPanel
+                  assetClass={asset.assetClass}
+                  externalId={asset.externalId}
+                  name={asset.name}
                   currency={asset.currency}
+                  onUsePrice={(cents) => {
+                    updatePrice(asset.id, cents);
+                    setPriceSource("Market data");
+                  }}
                 />
               )}
             </div>

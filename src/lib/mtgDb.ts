@@ -1,7 +1,7 @@
 /**
  * Server-side only — uses Neon DB via Drizzle ORM.
  */
-import { eq, ilike, sql, asc, nullsLast } from "drizzle-orm";
+import { eq, ilike, sql } from "drizzle-orm";
 import { db, mtgCards } from "./db";
 import type { MtgCardRecord } from "./mtgCardRecord";
 
@@ -109,7 +109,7 @@ export async function upsertCards(incoming: MtgCardRecord[]): Promise<void> {
 export async function searchCards(q: string, limit = 10): Promise<MtgCardRecord[]> {
   const rows = await db.select().from(mtgCards)
     .where(ilike(mtgCards.name, `%${q}%`))
-    .orderBy(nullsLast(asc(mtgCards.edhrecRank)))
+    .orderBy(sql`${mtgCards.edhrecRank} ASC NULLS LAST`)
     .limit(limit);
   return rows.map(rowToRecord);
 }
@@ -118,7 +118,7 @@ export async function searchCards(q: string, limit = 10): Promise<MtgCardRecord[
 export async function getByName(name: string): Promise<MtgCardRecord | null> {
   const rows = await db.select().from(mtgCards)
     .where(eq(mtgCards.name, name))
-    .orderBy(nullsLast(asc(mtgCards.edhrecRank)))
+    .orderBy(sql`${mtgCards.edhrecRank} ASC NULLS LAST`)
     .limit(1);
   return rows[0] ? rowToRecord(rows[0]) : null;
 }

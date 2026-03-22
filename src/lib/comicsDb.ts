@@ -33,19 +33,20 @@ function rowToRecord(row: typeof comics.$inferSelect): ComicRecord {
   return {
     cvId:           row.cvId,
     volumeName:     row.volumeName,
-    volumeCvId:     row.volumeCvId    ?? undefined,
+    volumeCvId:     row.volumeCvId    ?? null,
     issueNumber:    row.issueNumber,
-    name:           row.name          ?? undefined,
-    publisher:      row.publisher     ?? undefined,
-    coverDate:      row.coverDate     ?? undefined,
-    coverImageUrl:  row.coverImageUrl ?? undefined,
-    description:    row.description   ?? undefined,
+    name:           row.name          ?? null,
+    publisher:      row.publisher     ?? null,
+    coverDate:      row.coverDate     ?? null,
+    coverImageUrl:  row.coverImageUrl ?? null,
+    description:    row.description   ?? null,
     isKeyIssue:     row.isKeyIssue,
-    keyIssueReason: row.keyIssueReason ?? undefined,
+    keyIssueReason: row.keyIssueReason ?? null,
     characters:     (row.characters as string[]) ?? [],
     storyArcs:      (row.storyArcs as string[])  ?? [],
-    cvUrl:          row.cvUrl         ?? undefined,
+    cvUrl:          row.cvUrl         ?? null,
     sources:        (row.sources as string[])     ?? [],
+    lastSyncedAt:   row.lastSyncedAt ?? new Date().toISOString(),
   };
 }
 

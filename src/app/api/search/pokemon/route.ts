@@ -223,6 +223,37 @@ export async function GET(request: Request) {
 
   const q = parsed.data.q.trim();
 
+  // DB-first: query local pokemon_cards table if populated
+  try {
+    const { searchCards, isEmpty } = await import("@/lib/pokemonDb");
+    if (!(await isEmpty())) {
+      const records = await searchCards(q, undefined, 20);
+      if (records.length > 0) {
+        const suggestions = records.map((card) => {
+          const isJa       = card.lang === "ja";
+          const setName    = card.setName ?? "";
+          const fullName   = setName
+            ? `${isJa ? "[JA] " : ""}${card.name} — ${setName} #${card.localId}`
+            : `${isJa ? "[JA] " : ""}${card.name}`;
+          return {
+            id:          card.id,
+            name:        card.name,
+            fullName,
+            set:         setName,
+            rarity:      card.rarity      ?? null,
+            foilTypes:   null,
+            releaseDate: card.releaseDate  ?? null,
+            imageSmall:  card.imageSmallUrl ?? null,
+            imageLarge:  card.imageLargeUrl ?? null,
+            priceCents:  card.priceEurCents ?? card.priceUsdCents ?? null,
+            currency:    card.priceEurCents ? "EUR" : "USD",
+          };
+        });
+        return NextResponse.json({ suggestions, total: suggestions.length, source: "local_db" });
+      }
+    }
+  } catch { /* fall through to TCGdex API */ }
+
   try {
     const allTerms = extractTerms(q);
 

@@ -18,7 +18,7 @@
 import path from "path";
 import fs from "fs";
 import type { ComicRecord } from "../src/lib/comicRecord";
-import { upsertIssues, getByCvId, getStats } from "../src/lib/comicsDb";
+import { upsertIssues, getStats } from "../src/lib/comicsDb";
 
 // ─── Load .env.local ──────────────────────────────────────────────────────────
 
@@ -40,7 +40,6 @@ function loadEnv() {
 loadEnv();
 
 const CV_KEY = process.env.COMICVINE_API_KEY ?? "";
-const DB_PATH = path.join(process.cwd(), "data", "comics-db.json");
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -78,52 +77,6 @@ function stripHtml(html: string | null | undefined): string | null {
     .slice(0, 500) || null;
 }
 
-// ─── Database I/O ─────────────────────────────────────────────────────────────
-
-interface ComicsDbFile {
-  version: number;
-  syncedAt: string | null;
-  totalIssues: number;
-  issues: Record<string, ComicRecord>;
-}
-
-function loadDb(): ComicsDbFile {
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, "utf8")) as ComicsDbFile;
-  } catch {
-    return { version: 1, syncedAt: null, totalIssues: 0, issues: {} };
-  }
-}
-
-function saveDb(db: ComicsDbFile) {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
-  log(`Saved ${db.totalIssues} issues to data/comics-db.json`);
-}
-
-function upsert(db: ComicsDbFile, records: Partial<ComicRecord>[]) {
-  for (const r of records) {
-    if (!r.cvId) continue;
-    const existing = db.issues[r.cvId];
-    if (!existing) {
-      db.issues[r.cvId] = r as ComicRecord;
-    } else {
-      const merged: ComicRecord = { ...existing };
-      for (const key of Object.keys(r) as (keyof ComicRecord)[]) {
-        const val = r[key];
-        if (val !== null && val !== undefined) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (merged as any)[key] = val;
-        }
-      }
-      if (r.sources) merged.sources = Array.from(new Set([...existing.sources, ...r.sources]));
-      if (r.characters?.length) merged.characters = Array.from(new Set([...existing.characters, ...(r.characters ?? [])]));
-      if (r.storyArcs?.length) merged.storyArcs = Array.from(new Set([...existing.storyArcs, ...(r.storyArcs ?? [])]));
-      db.issues[r.cvId] = merged;
-    }
-  }
-  db.totalIssues = Object.keys(db.issues).length;
-}
 
 // ─── ComicVine API types ──────────────────────────────────────────────────────
 
@@ -292,7 +245,7 @@ interface Resolved {
   issue: CVSearchResult;
 }
 
-async function phaseSearch(db: ComicsDbFile): Promise<Resolved[]> {
+async function phaseSearch(): Promise<Resolved[]> {
   log("Phase 1: Searching ComicVine for key issues...");
 
   const resolved: Resolved[] = [];
@@ -300,17 +253,6 @@ async function phaseSearch(db: ComicsDbFile): Promise<Resolved[]> {
 
   for (let i = 0; i < total; i++) {
     const entry = KEY_ISSUE_SEARCHES[i]!;
-
-    // Skip if already in DB
-    const alreadyIn = Object.values(db.issues).some(
-      (r) =>
-        r.volumeName.toLowerCase().includes((entry.volumeHint ?? entry.query.split(" ")[0] ?? "").toLowerCase()) &&
-        r.issueNumber === entry.issueNumber,
-    );
-    if (alreadyIn) {
-      log(`  [${i + 1}/${total}] SKIP (already in DB): ${entry.query}`);
-      continue;
-    }
 
     const results = await cvSearch(entry.query);
 
@@ -349,7 +291,7 @@ async function phaseSearch(db: ComicsDbFile): Promise<Resolved[]> {
 
 // ─── Phase 2: enrich with full issue details ──────────────────────────────────
 
-async function phaseEnrich(db: ComicsDbFile, resolved: Resolved[]) {
+async function phaseEnrich(resolved: Resolved[]) {
   log(`Phase 2: Fetching full details for ${resolved.length} issues...`);
   const now = new Date().toISOString();
   let enriched = 0;
@@ -379,17 +321,10 @@ async function phaseEnrich(db: ComicsDbFile, resolved: Resolved[]) {
       lastSyncedAt:  now,
     };
 
-    upsert(db, [record]);
+    await upsertIssues([record]);
     enriched++;
 
     log(`  [${i + 1}/${resolved.length}] ✓ ${record.volumeName} #${record.issueNumber} — ${record.keyIssueReason}`);
-
-    // Save progress every 20 records
-    if (enriched % 20 === 0) {
-      db.syncedAt = now;
-      saveDb(db);
-      log(`  💾 Progress saved (${db.totalIssues} total)`);
-    }
 
     // ComicVine detail endpoint: 75 requests << 200/hour limit.
     // 2s gap = ~30 req/min, safe against velocity detection.
@@ -412,30 +347,18 @@ async function main() {
     process.exit(1);
   }
 
-  const db = loadDb();
-  log(`Existing DB: ${db.totalIssues} issues`);
   log(`Key-issue targets: ${KEY_ISSUE_SEARCHES.length}`);
 
-  const resolved = await phaseSearch(db);
-  await phaseEnrich(db, resolved);
+  const resolved = await phaseSearch();
+  await phaseEnrich(resolved);
 
-  db.syncedAt    = new Date().toISOString();
-  db.totalIssues = Object.keys(db.issues).length;
-  saveDb(db);
-
-  const stats = {
-    total:       db.totalIssues,
-    keyIssues:   Object.values(db.issues).filter((r) => r.isKeyIssue).length,
-    withImages:  Object.values(db.issues).filter((r) => r.coverImageUrl).length,
-    withDesc:    Object.values(db.issues).filter((r) => r.description).length,
-  };
-
+  const stats = await getStats();
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   log("═══ Done ════════════════════════════════════════════════");
-  log(`Total issues:   ${stats.total}`);
+  log(`Total issues:   ${stats.totalIssues}`);
   log(`Key issues:     ${stats.keyIssues}`);
-  log(`With images:    ${stats.withImages} (${Math.round(stats.withImages / Math.max(1, stats.total) * 100)}%)`);
-  log(`With desc:      ${stats.withDesc} (${Math.round(stats.withDesc / Math.max(1, stats.total) * 100)}%)`);
+  log(`With images:    ${stats.withImages} (${Math.round(stats.withImages / Math.max(1, stats.totalIssues) * 100)}%)`);
+  log(`With desc:      ${stats.withDescriptions} (${Math.round(stats.withDescriptions / Math.max(1, stats.totalIssues) * 100)}%)`);
   log(`Time:           ${elapsed}s`);
   log(`Rate note:      ComicVine allows ~200 req/hour free tier`);
 }

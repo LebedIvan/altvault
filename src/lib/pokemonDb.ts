@@ -1,7 +1,7 @@
 /**
  * Server-side only — uses Neon DB via Drizzle ORM.
  */
-import { eq, ilike, or, sql, and } from "drizzle-orm";
+import { eq, ilike, sql, and } from "drizzle-orm";
 import { db, pokemonCards } from "./db";
 import type { PokemonCardRecord } from "./pokemonCardRecord";
 

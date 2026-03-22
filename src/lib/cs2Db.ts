@@ -80,8 +80,8 @@ export function parseMarketHashName(marketHashName: string): {
     return { weaponType, skinName: rest.trim() || null, exterior: null, isStatTrak, isSouvenir };
   }
 
-  const skinName = parenMatch[1].trim();
-  const exterior = parenMatch[2].trim();
+  const skinName = parenMatch[1]!.trim();
+  const exterior = parenMatch[2]!.trim();
 
   return { weaponType, skinName: skinName || null, exterior, isStatTrak, isSouvenir };
 }
@@ -91,7 +91,7 @@ export function parseMarketHashName(marketHashName: string): {
 export async function upsertItems(incoming: Cs2ItemRecord[]): Promise<void> {
   if (incoming.length === 0) return;
 
-  const CHUNK = 100;
+  const CHUNK = 50;
   for (let i = 0; i < incoming.length; i += CHUNK) {
     const chunk = incoming.slice(i, i + CHUNK);
     await db.insert(cs2Items)

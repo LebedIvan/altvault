@@ -32,6 +32,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Query too short" }, { status: 400 });
   }
 
+  // DB-first: query local cs2_items table if populated
+  try {
+    const { searchItems, isEmpty } = await import("@/lib/cs2Db");
+    if (!(await isEmpty())) {
+      const records = await searchItems(query.data.q, 10);
+      if (records.length > 0) {
+        const suggestions = records.map((item) => ({
+          name:       item.marketHashName,
+          price:      item.suggestedPriceCents != null
+            ? `€${(item.suggestedPriceCents / 100).toFixed(2)}`
+            : null,
+          priceCents: item.suggestedPriceCents ?? item.minPriceCents ?? null,
+          listings:   0,
+          type:       [item.weaponType, item.exterior].filter(Boolean).join(", "),
+          iconUrl:    item.iconUrl ?? null,
+        }));
+        return NextResponse.json({ suggestions, source: "local_db" });
+      }
+    }
+  } catch { /* fall through to Steam API */ }
+
   try {
     const url =
       `https://steamcommunity.com/market/search/render/` +

@@ -40,6 +40,38 @@ export async function GET(request: Request) {
 
   const q = query.data.q;
 
+  // DB-first: query local mtg_cards table if populated
+  try {
+    const { searchCards, isEmpty } = await import("@/lib/mtgDb");
+    if (!(await isEmpty())) {
+      const records = await searchCards(q, 15);
+      if (records.length > 0) {
+        const suggestions = records.map((card) => {
+          const priceCents = card.priceEurCents ?? card.priceUsdCents ?? null;
+          const currency = card.priceEurCents ? "EUR" : "USD";
+          return {
+            id:            card.id,
+            name:          card.name,
+            fullName:      `${card.name} — ${card.setName ?? card.setCode} #${card.collectorNumber ?? ""}`,
+            setName:       card.setName ?? null,
+            setCode:       card.setCode.toUpperCase(),
+            number:        card.collectorNumber ?? null,
+            rarity:        card.rarity ?? null,
+            releasedAt:    card.releasedAt ?? null,
+            imageSmall:    card.imageSmallUrl ?? null,
+            imageLarge:    card.imageLargeUrl ?? null,
+            imagePng:      card.imagePngUrl   ?? null,
+            priceCents,
+            currency,
+            tcgplayerUrl:  card.tcgplayerUrl  ?? null,
+            cardmarketUrl: card.cardmarketUrl ?? null,
+          };
+        });
+        return NextResponse.json({ suggestions, total: suggestions.length, source: "local_db" });
+      }
+    }
+  } catch { /* fall through to Scryfall */ }
+
   try {
     // Scryfall full-text search, sorted by EUR price desc
     const url =

@@ -145,6 +145,28 @@ export async function GET(request: Request) {
 
   const { q, sport = "basketball" } = parsed.data;
 
+  // DB-first: query local sports_cards table if populated
+  try {
+    const { searchCards, isEmpty } = await import("@/lib/sportsCardsDb");
+    if (!(await isEmpty())) {
+      const records = await searchCards(q, sport, 12);
+      if (records.length > 0) {
+        const suggestions = records.map((r) => ({
+          id:         r.id,
+          name:       r.name,
+          fullName:   r.fullName ?? r.name,
+          set:        r.setName ?? "",
+          rarity:     null,
+          imageSmall: r.imageUrl ?? null,
+          imageLarge: r.imageUrl ?? null,
+          priceCents: r.loosePriceCents ?? r.gradedPriceCents ?? null,
+          currency:   "USD",
+        }));
+        return NextResponse.json({ suggestions, total: suggestions.length, source: "local_db" });
+      }
+    }
+  } catch { /* fall through to PriceCharting */ }
+
   // Try PriceCharting API first
   const pcResult = await searchPriceCharting(q, sport);
   if (pcResult && pcResult.suggestions.length > 0) {

@@ -35,7 +35,7 @@ export interface PriceSource {
 // ─── Cache (reuses ebayCache table with "market:" key prefix) ─────────────────
 
 const MARKET_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const KEY_PREFIX    = "market:";
+const KEY_PREFIX    = "market:v2:"; // bump version to bust stale cache
 
 async function getFromCache(cacheKey: string): Promise<PriceSource[] | null> {
   try {
@@ -229,7 +229,7 @@ async function fetchCs2Sources(externalId: string | null, name: string): Promise
 
   const [ebay, skinport] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
-    fetchSkinportSource(itemName, ctSkinportPrice),
+    fetchSkinportSource(itemName, ctSkinportPrice, ctSteamPrice),
   ]);
 
   return [
@@ -255,7 +255,7 @@ function skinportSlug(marketHashName: string): string {
     .replace(/^-|-$/g, "");
 }
 
-async function fetchSkinportSource(itemName: string, ctSkinportPrice: number | null = null): Promise<PriceSource> {
+async function fetchSkinportSource(itemName: string, ctSkinportPrice: number | null = null, ctSteamPrice: number | null = null): Promise<PriceSource> {
   const itemUrl = `https://skinport.com/item/${skinportSlug(itemName)}`;
   try {
     const [listingsRes, historyRes, steamRes] = await Promise.allSettled([
@@ -315,6 +315,10 @@ async function fetchSkinportSource(itemName: string, ctSkinportPrice: number | n
     if (priceCents === null && ctSkinportPrice !== null) {
       priceCents = Math.round(ctSkinportPrice * 100);
       note = "No active listings — price from CSGO Trader aggregated data";
+    }
+    if (priceCents === null && ctSteamPrice !== null) {
+      priceCents = Math.round(ctSteamPrice * 100);
+      note = "No Skinport data — price from Steam Market (via CSGO Trader)";
     }
     if (priceCents === null && steamRes.status === "fulfilled" && steamRes.value.ok) {
       const sd = await steamRes.value.json() as { success?: boolean; median_price?: string; lowest_price?: string };

@@ -229,7 +229,7 @@ async function fetchCs2Sources(externalId: string | null, name: string): Promise
 
   const [ebay, skinport] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
-    fetchSkinportSource(itemName, ctSkinportPrice, ctSteamPrice),
+    fetchSkinportSource(itemName),
   ]);
 
   return [
@@ -255,32 +255,45 @@ function skinportSlug(marketHashName: string): string {
     .replace(/^-|-$/g, "");
 }
 
-async function fetchSkinportSource(itemName: string, ctSkinportPrice: number | null = null, ctSteamPrice: number | null = null): Promise<PriceSource> {
+async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
   const itemUrl = `https://skinport.com/item/${skinportSlug(itemName)}`;
   try {
-    const [listingsRes, historyRes, steamRes] = await Promise.allSettled([
-      fetch("https://api.skinport.com/v1/items?app_id=730&currency=EUR", {
-        headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" },
-        next: { revalidate: 3600 },
-      }),
+    // Fetch specific item (market_hash_name filter returns suggested_price even with no active listings)
+    // and sales history in parallel
+    const authHeader = (() => {
+      const id  = process.env.SKINPORT_CLIENT_ID;
+      const sec = process.env.SKINPORT_CLIENT_SECRET;
+      if (id && sec) return `Basic ${Buffer.from(`${id}:${sec}`).toString("base64")}`;
+      return undefined;
+    })();
+
+    const [itemRes, historyRes] = await Promise.allSettled([
       fetch(
-        `https://api.skinport.com/v1/sales/history?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
+        `https://api.skinport.com/v1/items?app_id=730&currency=EUR&tradable=0&market_hash_name=${encodeURIComponent(itemName)}`,
         { headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" }, next: { revalidate: 3600 } },
       ),
       fetch(
-        `https://steamcommunity.com/market/priceoverview/?appid=730&currency=3&market_hash_name=${encodeURIComponent(itemName)}`,
-        { headers: { "User-Agent": "Vaulty/1.0" }, next: { revalidate: 3600 } },
+        `https://api.skinport.com/v1/sales/history?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
+        {
+          headers: {
+            "User-Agent": "Vaulty/1.0",
+            Accept: "application/json",
+            ...(authHeader ? { Authorization: authHeader } : {}),
+          },
+          next: { revalidate: 3600 },
+        },
       ),
     ]);
 
-    // Current price from listings
+    // Current / suggested price from item endpoint
     let priceCents: number | null = null;
     let minCents:   number | null = null;
-    if (listingsRes.status === "fulfilled" && listingsRes.value.ok) {
-      const items = (await listingsRes.value.json()) as {
+    if (itemRes.status === "fulfilled" && itemRes.value.ok) {
+      const items = (await itemRes.value.json()) as {
         market_hash_name: string; suggested_price: number | null; min_price: number | null;
       }[];
-      const item = items.find((i) => i.market_hash_name === itemName);
+      // With market_hash_name filter the array has at most one entry
+      const item = items[0] ?? items.find((i) => i.market_hash_name === itemName);
       if (item) {
         priceCents = item.suggested_price ? Math.round(item.suggested_price * 100) : null;
         minCents   = item.min_price       ? Math.round(item.min_price       * 100) : null;
@@ -305,31 +318,12 @@ async function fetchSkinportSource(itemName: string, ctSkinportPrice: number | n
       }
     }
 
-    // No active listing — try fallbacks in order
+    // No active listing — fall back to recent sales median
     let note: string | undefined;
     if (priceCents === null && recentSales && recentSales.length > 0) {
       const sorted = [...recentSales].map((s) => s.price).sort((a, b) => a - b);
       priceCents = Math.round(sorted[Math.floor(sorted.length / 2)]! * 100);
       note = "No active listings — price from recent sales";
-    }
-    if (priceCents === null && ctSkinportPrice !== null) {
-      priceCents = Math.round(ctSkinportPrice * 100);
-      note = "No active listings — price from CSGO Trader aggregated data";
-    }
-    if (priceCents === null && ctSteamPrice !== null) {
-      priceCents = Math.round(ctSteamPrice * 100);
-      note = "No Skinport data — price from Steam Market (via CSGO Trader)";
-    }
-    if (priceCents === null && steamRes.status === "fulfilled" && steamRes.value.ok) {
-      const sd = await steamRes.value.json() as { success?: boolean; median_price?: string; lowest_price?: string };
-      const raw = sd.median_price ?? sd.lowest_price ?? null;
-      if (raw) {
-        const num = parseFloat(raw.replace(/[^\d,.]/g, "").replace(",", "."));
-        if (!isNaN(num) && num > 0) {
-          priceCents = Math.round(num * 100);
-          note = "No Skinport data — price from Steam Community Market";
-        }
-      }
     }
 
     return {

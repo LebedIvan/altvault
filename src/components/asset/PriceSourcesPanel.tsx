@@ -206,11 +206,11 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
       </div>
     );
   }
-  if (source.status === "unavailable" || source.priceCents == null) {
+  const sales = source.recentSales ?? [];
+
+  if ((source.status === "unavailable" || source.priceCents == null) && sales.length === 0) {
     return <p className="text-xs text-slate-500">Price data unavailable from this source.</p>;
   }
-
-  const sales   = source.recentSales ?? [];
   const visible = showAll ? sales : sales.slice(0, 8);
 
   return (

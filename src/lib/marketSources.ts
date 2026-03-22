@@ -281,12 +281,21 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
       }
     }
 
+    // No active listing — derive price from recent sales median
+    let note: string | undefined;
+    if (priceCents === null && recentSales && recentSales.length > 0) {
+      const sorted = [...recentSales].map((s) => s.price).sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)]!;
+      priceCents = Math.round(median * 100);
+      note = "No active listings — price from recent sales";
+    }
+
     return {
       key: "skinport", label: "Skinport", currency: "EUR",
       status: priceCents ? "ok" : "unavailable",
       priceCents,
       recentSales,
-      meta: { minCents: minCents ?? undefined, url: itemUrl },
+      meta: { minCents: minCents ?? undefined, url: itemUrl, note },
     };
   } catch {
     return fallback("skinport", "Skinport");

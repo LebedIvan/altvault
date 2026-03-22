@@ -139,7 +139,7 @@ async function fetchEbayBrowse(q: string): Promise<EbaySoldData | null> {
     let res: Response;
     try {
       res = await fetch(
-        `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}&limit=50&filter=buyingOptions%3A%7BFIXED_PRICE%7D`,
+        `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}&limit=50`,
         { headers: { Authorization: `Bearer ${token}`, "X-EBAY-C-MARKETPLACE-ID": "EBAY_US" }, signal: controller.signal },
       );
     } finally { clearTimeout(timer); }

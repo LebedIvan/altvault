@@ -242,8 +242,9 @@ async function fetchCsgoTraderSource(itemName: string): Promise<PriceSource> {
 }
 
 async function fetchMtgSources(_externalId: string | null, name: string): Promise<PriceSource[]> {
-  const cardName  = name.replace(/ — MTG$/, "").trim();
-  const ebayQuery = `${cardName} mtg card`;
+  // "Beetleback Chief — The List #PCA-40" → "Beetleback Chief"
+  const cardName  = (name.split(" — ")[0] ?? name).trim();
+  const ebayQuery = `${cardName} mtg`;
 
   const [ebay, cardmarket, tcgplayer] = await Promise.allSettled([
     buildEbaySource(ebayQuery),
@@ -291,7 +292,8 @@ async function fetchScryfallSource(cardName: string, prefer: "eur" | "usd"): Pro
 }
 
 async function fetchPokemonSources(externalId: string | null, name: string): Promise<PriceSource[]> {
-  const ebayQuery = `${name} pokemon card`;
+  const cardName  = (name.split(" — ")[0] ?? name).trim();
+  const ebayQuery = `${cardName} pokemon card`;
 
   const [ebay, cardmarket, tcgplayer] = await Promise.allSettled([
     buildEbaySource(ebayQuery),

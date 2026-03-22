@@ -87,6 +87,15 @@ export function PortfolioProvider({
 
   const addAsset = useCallback((asset: Asset) => {
     setAssets((prev) => [...prev, asset]);
+    // Pre-warm market price cache so first asset page load shows data immediately
+    if (asset.name) {
+      const params = new URLSearchParams({
+        assetClass: asset.assetClass,
+        name: asset.name,
+        ...(asset.externalId ? { externalId: asset.externalId } : {}),
+      });
+      fetch(`/api/prices/sources?${params}`).catch(() => {/* fire and forget */});
+    }
   }, []);
 
   const updateAsset = useCallback((id: string, patch: Partial<Asset>) => {

@@ -6,7 +6,7 @@
  *
  * Server-side only.
  */
-import { eq } from "drizzle-orm";
+import { eq, like } from "drizzle-orm";
 import { db, ebayCache, legoSets } from "./db";
 import { fetchEbaySold } from "./ebaySold";
 import type { SoldItem } from "./ebaySold";
@@ -34,7 +34,7 @@ export interface PriceSource {
 
 // ─── Cache (reuses ebayCache table with "market:" key prefix) ─────────────────
 
-const MARKET_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+const MARKET_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const KEY_PREFIX    = "market:";
 
 async function getFromCache(cacheKey: string): Promise<PriceSource[] | null> {
@@ -53,10 +53,15 @@ async function getFromCache(cacheKey: string): Promise<PriceSource[] | null> {
   return null;
 }
 
-async function saveToCache(cacheKey: string, sources: PriceSource[]): Promise<void> {
+async function saveToCache(
+  cacheKey: string,
+  sources: PriceSource[],
+  params: { assetClass: string; externalId: string | null; name: string },
+): Promise<void> {
   const expiresAt = new Date(Date.now() + MARKET_TTL_MS);
   try {
-    const payload = { sources } as unknown as Record<string, unknown>;
+    // Store params alongside sources so the cron can re-fetch without re-discovering them
+    const payload = { sources, params } as unknown as Record<string, unknown>;
     await db
       .insert(ebayCache)
       .values({ query: KEY_PREFIX + cacheKey, data: payload, expiresAt: expiresAt.toISOString() })
@@ -65,6 +70,25 @@ async function saveToCache(cacheKey: string, sources: PriceSource[]): Promise<vo
         set: { data: payload, expiresAt: expiresAt.toISOString(), updatedAt: new Date().toISOString() },
       });
   } catch { /* write failed */ }
+}
+
+/** Returns all market cache entries — used by the cron job to refresh stale data */
+export async function getAllMarketCacheEntries(): Promise<
+  Array<{ key: string; expiresAt: Date; params: { assetClass: string; externalId: string | null; name: string } | null }>
+> {
+  try {
+    const rows = await db
+      .select()
+      .from(ebayCache)
+      .where(like(ebayCache.query, KEY_PREFIX + "%"))
+      .limit(500);
+    return rows
+      .map((r) => ({
+        key: r.query,
+        expiresAt: new Date(r.expiresAt),
+        params: ((r.data as Record<string, unknown>)?.params as { assetClass: string; externalId: string | null; name: string } | null) ?? null,
+      }));
+  } catch { return []; }
 }
 
 // ─── eBay source builder (universal) ─────────────────────────────────────────
@@ -501,6 +525,6 @@ export async function fetchAllSources(
     }
   }
 
-  await saveToCache(cacheKey, sources);
+  await saveToCache(cacheKey, sources, { assetClass, externalId, name });
   return sources;
 }

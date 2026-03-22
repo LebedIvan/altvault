@@ -234,7 +234,7 @@ async function fetchCsgoTraderSource(itemName: string): Promise<PriceSource> {
   }
 }
 
-async function fetchMtgSources(externalId: string | null, name: string): Promise<PriceSource[]> {
+async function fetchMtgSources(_externalId: string | null, name: string): Promise<PriceSource[]> {
   const cardName  = name.replace(/ — MTG$/, "").trim();
   const ebayQuery = `${cardName} mtg card`;
 
@@ -337,7 +337,7 @@ async function fetchTcgdexSource(externalId: string | null, prefer: "eur" | "usd
   }
 }
 
-async function fetchComicsSources(externalId: string | null, name: string): Promise<PriceSource[]> {
+async function fetchComicsSources(_externalId: string | null, name: string): Promise<PriceSource[]> {
   const ebayQuery = `${name} comic`;
   const ebay = await buildEbaySource(ebayQuery).catch(() => fallback("ebay", "eBay (sold)"));
   return [ebay];

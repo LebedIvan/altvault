@@ -138,80 +138,88 @@ function cardToRecord(card: ScryfallCard): MtgCardRecord | null {
 
 async function main() {
   log("═══ MTG Card Sync (Scryfall Bulk Data) ═════════════════");
+
   log("Fetching bulk data URL...");
   const url = await getBulkDataUrl();
-  log(`Downloading from: ${url.slice(0, 60)}...`);
+  log(`URL: ${url.slice(0, 80)}...`);
 
+  log("Starting download...");
   const res = await fetch(url, { headers: { "User-Agent": "Vaulty/1.0" } });
-  if (!res.ok) throw new Error(`Failed to download bulk data: ${res.status}`);
-  if (!res.body) throw new Error("No response body");
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} — failed to download bulk data`);
+  if (!res.body) throw new Error("No response body from Scryfall");
+
+  const totalBytes = Number(res.headers.get("content-length") ?? 0);
+  log(`File size: ${totalBytes ? (totalBytes / 1024 / 1024).toFixed(0) + " MB" : "unknown"}`);
+
+  let bytesReceived = 0;
+  let lastProgressLog = 0;
 
   // Stream the JSON array manually — avoids loading 100MB into memory
-  let buffer = "";
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let objectStart = -1;
+  const chunks: Uint8Array[] = [];
   let processed = 0;
   let skipped = 0;
   const batch: MtgCardRecord[] = [];
   const BATCH_SIZE = 500;
 
-  const decoder = new TextDecoder();
   const reader = res.body.getReader();
+
+  // Download phase — collect all chunks with progress logging
+  log("Downloading...");
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    bytesReceived += value.length;
+    const mb = bytesReceived / 1024 / 1024;
+    if (mb - lastProgressLog >= 50) {
+      const pct = totalBytes ? ` (${Math.round(bytesReceived / totalBytes * 100)}%)` : "";
+      log(`  Downloaded ${mb.toFixed(0)} MB${pct}...`);
+      lastProgressLog = mb;
+    }
+  }
+  log(`Download complete: ${(bytesReceived / 1024 / 1024).toFixed(1)} MB`);
+
+  // Parse phase — Scryfall bulk data has one JSON object per line
+  log("Parsing cards...");
+
+  // Merge all chunks into one Buffer, then split by newline
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const merged = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
+  const text = new TextDecoder().decode(merged);
 
   async function flushBatch() {
     if (batch.length === 0) return;
-    await upsertCards([...batch]);
+    try {
+      await upsertCards([...batch]);
+    } catch (err) {
+      throw new Error(`DB upsert failed at card ${processed}: ${err}`);
+    }
     processed += batch.length;
     batch.length = 0;
-    if (processed % 5000 === 0) {
-      log(`  Processed ${processed} cards (skipped ${skipped})...`);
+    if (processed % 2000 === 0) {
+      log(`  Upserted ${processed.toLocaleString()} cards (skipped ${skipped.toLocaleString()})...`);
     }
   }
 
-  outer: while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  const lines = text.split("\n");
+  log(`  Splitting into ${lines.length.toLocaleString()} lines...`);
 
-    buffer += decoder.decode(value, { stream: true });
-
-    let i = 0;
-    while (i < buffer.length) {
-      const ch = buffer[i]!;
-
-      if (escape) { escape = false; i++; continue; }
-      if (ch === "\\" && inString) { escape = true; i++; continue; }
-      if (ch === '"') { inString = !inString; i++; continue; }
-      if (inString) { i++; continue; }
-
-      if (ch === "{") {
-        if (depth === 0) objectStart = i;
-        depth++;
-      } else if (ch === "}") {
-        depth--;
-        if (depth === 0 && objectStart >= 0) {
-          const json = buffer.slice(objectStart, i + 1);
-          try {
-            const card = JSON.parse(json) as ScryfallCard;
-            const record = cardToRecord(card);
-            if (record) {
-              batch.push(record);
-              if (batch.length >= BATCH_SIZE) {
-                await flushBatch();
-              }
-            } else {
-              skipped++;
-            }
-          } catch {
-            // malformed JSON chunk, skip
-          }
-          objectStart = -1;
-          buffer = buffer.slice(i + 1);
-          i = -1;
-        }
+  for (const raw of lines) {
+    const line = raw.trim().replace(/^,/, "").replace(/^\[/, "").replace(/\]$/, "").trim();
+    if (!line || line === "[" || line === "]") continue;
+    try {
+      const card = JSON.parse(line) as ScryfallCard;
+      const record = cardToRecord(card);
+      if (record) {
+        batch.push(record);
+        if (batch.length >= BATCH_SIZE) await flushBatch();
+      } else {
+        skipped++;
       }
-      i++;
+    } catch (err) {
+      log(`  WARN: Failed to parse line: ${String(err).slice(0, 80)}`);
     }
   }
 
@@ -219,8 +227,12 @@ async function main() {
 
   const stats = await getStats();
   log("═══ Done ════════════════════════════════════════════════");
-  log(`Total cards: ${stats.total} | Sets: ${stats.sets} | With prices: ${stats.withPrices}`);
-  log(`Skipped:     ${skipped} (tokens, art series, digital-only)`);
+  log(`Total in DB: ${stats.total.toLocaleString()} cards | Sets: ${stats.sets} | With prices: ${stats.withPrices.toLocaleString()}`);
+  log(`This run:    upserted ${processed.toLocaleString()}, skipped ${skipped.toLocaleString()}`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((err) => {
+  console.error("\n[ERROR]", err instanceof Error ? err.message : err);
+  if (err instanceof Error && err.stack) console.error(err.stack);
+  process.exit(1);
+});

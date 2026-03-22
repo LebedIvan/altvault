@@ -224,7 +224,7 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function PriceSourcesPanel({ assetClass, externalId, name, currency = "USD", onUsePrice }: Props) {
+export function PriceSourcesPanel({ assetClass, externalId, name, onUsePrice }: Props) {
   const [sources, setSources] = useState<PriceSource[]>([]);
   const [active,  setActive]  = useState<string>("");
   const [loading, setLoading] = useState(true);

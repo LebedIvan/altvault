@@ -473,14 +473,18 @@ export async function fetchAllSources(
     case "cs2_skins":
       sources = await fetchCs2Sources(externalId, name);
       break;
-    case "trading_cards":
-      // Distinguish MTG vs Pokemon by name suffix or externalId format
-      if (name.endsWith("— MTG") || name.endsWith("MTG")) {
-        sources = await fetchMtgSources(externalId, name);
-      } else {
-        sources = await fetchPokemonSources(externalId, name);
-      }
+    case "trading_cards": {
+      // Scryfall IDs are UUIDs (8-4-4-4-12 hex) → MTG
+      // Pokemon TCG IDs look like "sv1-001", "base1-4", "swsh1-1" etc.
+      const isMtg =
+        name.endsWith("— MTG") ||
+        name.endsWith("MTG") ||
+        (externalId !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(externalId));
+      sources = isMtg
+        ? await fetchMtgSources(externalId, name)
+        : await fetchPokemonSources(externalId, name);
       break;
+    }
     case "comics":
       sources = await fetchComicsSources(externalId, name);
       break;

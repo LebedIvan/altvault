@@ -224,20 +224,69 @@ async function fetchCs2Sources(externalId: string | null, name: string): Promise
   ];
 }
 
+/** "AWP | Asiimov (Field-Tested)" → "awp-asiimov-field-tested" */
+function skinportSlug(marketHashName: string): string {
+  return marketHashName
+    .toLowerCase()
+    .replace(/\s*\|\s*/g, "-")
+    .replace(/[()]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
+  const itemUrl = `https://skinport.com/item/${skinportSlug(itemName)}`;
   try {
-    const res = await fetch("https://api.skinport.com/v1/items?app_id=730&currency=EUR", {
-      headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" },
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return fallback("skinport", "Skinport");
-    const items = (await res.json()) as { market_hash_name: string; suggested_price: number | null; min_price: number | null }[];
-    const item  = items.find((i) => i.market_hash_name === itemName);
-    const price = item?.suggested_price ?? item?.min_price ?? null;
+    const [listingsRes, historyRes] = await Promise.allSettled([
+      fetch("https://api.skinport.com/v1/items?app_id=730&currency=EUR", {
+        headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" },
+        next: { revalidate: 3600 },
+      }),
+      fetch(
+        `https://api.skinport.com/v1/sales/history?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
+        { headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" }, next: { revalidate: 3600 } },
+      ),
+    ]);
+
+    // Current price from listings
+    let priceCents: number | null = null;
+    let minCents:   number | null = null;
+    if (listingsRes.status === "fulfilled" && listingsRes.value.ok) {
+      const items = (await listingsRes.value.json()) as {
+        market_hash_name: string; suggested_price: number | null; min_price: number | null;
+      }[];
+      const item = items.find((i) => i.market_hash_name === itemName);
+      if (item) {
+        priceCents = item.suggested_price ? Math.round(item.suggested_price * 100) : null;
+        minCents   = item.min_price       ? Math.round(item.min_price       * 100) : null;
+      }
+    }
+
+    // Recent sales history — Skinport returns [[price, unix_ts], ...]
+    let recentSales: SoldItem[] | undefined;
+    if (historyRes.status === "fulfilled" && historyRes.value.ok) {
+      const raw = (await historyRes.value.json()) as unknown;
+      if (Array.isArray(raw) && raw.length > 0) {
+        const sales: SoldItem[] = (raw as [number, number][])
+          .slice(-20)
+          .reverse()
+          .map(([price, ts]) => ({
+            date:     new Date(ts * 1000).toISOString(),
+            price,
+            currency: "EUR",
+            title:    itemName,
+          }));
+        if (sales.length > 0) recentSales = sales;
+      }
+    }
+
     return {
-      key: "skinport", label: "Skinport", currency: "EUR", status: price ? "ok" : "unavailable",
-      priceCents: price ? Math.round(price * 100) : null,
-      meta: { url: `https://skinport.com/item/${encodeURIComponent(itemName)}` },
+      key: "skinport", label: "Skinport", currency: "EUR",
+      status: priceCents ? "ok" : "unavailable",
+      priceCents,
+      recentSales,
+      meta: { minCents: minCents ?? undefined, url: itemUrl },
     };
   } catch {
     return fallback("skinport", "Skinport");

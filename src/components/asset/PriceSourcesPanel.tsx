@@ -191,6 +191,8 @@ function EbayTabContent({ source }: { source: PriceSource }) {
 // ─── Generic source tab content ────────────────────────────────────────────────
 
 function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUsePrice?: (c: number) => void }) {
+  const [showAll, setShowAll] = useState(false);
+
   if (source.status === "no_key") {
     return (
       <div className="space-y-3">
@@ -207,6 +209,10 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
   if (source.status === "unavailable" || source.priceCents == null) {
     return <p className="text-xs text-slate-500">Price data unavailable from this source.</p>;
   }
+
+  const sales   = source.recentSales ?? [];
+  const visible = showAll ? sales : sales.slice(0, 8);
+
   return (
     <div className="space-y-4">
       {/* Price */}
@@ -251,6 +257,47 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
       {source.meta?.note && (
         <p className="text-[10px] text-slate-600">{source.meta.note}</p>
       )}
+
+      {/* Recent sales (e.g. Skinport history) */}
+      {sales.length >= 3 && (
+        <div>
+          <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-600">
+            Price history ({sales.length} recent sales)
+          </p>
+          <div className="rounded-lg bg-slate-800/40 px-2 py-1">
+            <PriceSparkline sales={sales} />
+          </div>
+        </div>
+      )}
+      {sales.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] uppercase tracking-wider text-slate-600">Recent sales</p>
+          <div className="space-y-0.5">
+            {visible.map((sale, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
+                <p className="min-w-0 flex-1 truncate text-xs text-slate-400" title={sale.title}>
+                  {sale.title.length > 48 ? sale.title.slice(0, 48) + "…" : sale.title}
+                </p>
+                <div className="ml-4 flex items-center gap-3 shrink-0">
+                  <span className="text-[10px] text-slate-600">{relativeTime(sale.date)}</span>
+                  <span className="text-xs font-semibold tabular-nums text-slate-300">
+                    {fmtCents(Math.round(sale.price * 100), sale.currency)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {sales.length > 8 && (
+            <button
+              onClick={() => setShowAll(!showAll)}
+              className="mt-2 w-full rounded-lg py-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+            >
+              {showAll ? "Show less ↑" : `Show all ${sales.length} sales ↓`}
+            </button>
+          )}
+        </div>
+      )}
+
       {source.meta?.url && (
         <a href={source.meta.url} target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-xs text-sky-500 hover:text-sky-400 transition-colors">

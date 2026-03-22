@@ -2,6 +2,55 @@ import { NextRequest, NextResponse } from "next/server";
 import { nextVariant, isValidVariant } from "@/lib/abtest";
 import type { Lang } from "@/lib/i18n";
 
+// ─── Rate Limiter ──────────────────────────────────────────────────────────────
+// In-memory per edge-instance. Sufficient to block burst DDoS from single IPs.
+// Keyed by "ip:bucket" where bucket = floor(Date.now() / windowMs).
+
+const WINDOW_MS   = 60_000; // 1 minute window
+const API_LIMIT   = 60;     // general API calls per window
+const AUTH_LIMIT  = 10;     // auth endpoints (login/register) per window
+
+const hits = new Map<string, number>();
+
+// Prune old entries every ~500 requests to prevent unbounded Map growth
+let pruneCounter = 0;
+function pruneOldEntries() {
+  if (++pruneCounter < 500) return;
+  pruneCounter = 0;
+  const currentBucket = Math.floor(Date.now() / WINDOW_MS);
+  hits.forEach((_, key) => {
+    const bucket = parseInt(key.split(":").pop() ?? "0", 10);
+    if (bucket < currentBucket) hits.delete(key);
+  });
+}
+
+function getIp(req: NextRequest): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
+function checkRateLimit(ip: string, limit: number): boolean {
+  const bucket = Math.floor(Date.now() / WINDOW_MS);
+  const key    = `${ip}:${bucket}`;
+  const count  = (hits.get(key) ?? 0) + 1;
+  hits.set(key, count);
+  pruneOldEntries();
+  return count <= limit;
+}
+
+function rateLimitedResponse(retryAfterSec: number) {
+  return new NextResponse("Too Many Requests", {
+    status: 429,
+    headers: {
+      "Retry-After":    String(retryAfterSec),
+      "Content-Type":   "text/plain",
+    },
+  });
+}
+
 function detectLang(req: NextRequest): Lang {
   const accept = req.headers.get("accept-language") ?? "";
   if (accept.toLowerCase().includes("ru")) return "ru";
@@ -75,8 +124,14 @@ export function middleware(req: NextRequest) {
     return res;
   }
 
-  // Allow API routes (they do their own auth checks)
+  // Rate limit API routes
   if (pathname.startsWith("/api/")) {
+    const ip     = getIp(req);
+    const isAuth = pathname.startsWith("/api/auth/");
+    const limit  = isAuth ? AUTH_LIMIT : API_LIMIT;
+    if (!checkRateLimit(ip, limit)) {
+      return rateLimitedResponse(Math.ceil(WINDOW_MS / 1000));
+    }
     return NextResponse.next();
   }
 

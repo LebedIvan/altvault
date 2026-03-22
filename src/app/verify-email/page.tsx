@@ -25,10 +25,10 @@ export default function Page({ searchParams }: Props) {
           </>
         ) : (
           <>
-            <div className="text-4xl mb-4">✅</div>
-            <h2 className="fb text-lg font-bold text-[#E8F0FF] mb-2">Email подтверждён!</h2>
+            <div className="text-4xl mb-4">📧</div>
+            <h2 className="fb text-lg font-bold text-[#E8F0FF] mb-2">Проверьте почту</h2>
             <p className="fm text-sm text-[#4E6080] leading-relaxed mb-6">
-              Аккаунт активирован. Вы будете перенаправлены автоматически.
+              Мы отправили письмо с подтверждением. Перейдите по ссылке в письме, чтобы активировать аккаунт.
             </p>
           </>
         )}

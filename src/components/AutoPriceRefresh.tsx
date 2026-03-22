@@ -103,12 +103,14 @@ async function persistSnapshots(assets: Asset[], priceMap: Map<string, number>) 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AutoPriceRefresh() {
-  const { assets, updatePrice, isLoaded } = usePortfolio();
+  const { assets, updatePrice, updateAsset, isLoaded } = usePortfolio();
 
-  const assetsRef      = useRef(assets);
-  const updatePriceRef = useRef(updatePrice);
+  const assetsRef       = useRef(assets);
+  const updatePriceRef  = useRef(updatePrice);
+  const updateAssetRef  = useRef(updateAsset);
   useEffect(() => { assetsRef.current = assets; }, [assets]);
   useEffect(() => { updatePriceRef.current = updatePrice; }, [updatePrice]);
+  useEffect(() => { updateAssetRef.current = updateAsset; }, [updateAsset]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -129,6 +131,9 @@ export function AutoPriceRefresh() {
         if (r.priceCents !== null) {
           updatePriceRef.current(r.assetId, r.priceCents);
           priceMap.set(r.assetId, r.priceCents);
+        }
+        if (r.extraPatch) {
+          updateAssetRef.current(r.assetId, r.extraPatch);
         }
       }
 

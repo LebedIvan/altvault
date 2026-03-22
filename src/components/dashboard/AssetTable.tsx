@@ -8,6 +8,8 @@ import { useCurrency } from "@/store/currencyStore";
 import type { Asset } from "@/types/asset";
 import type { AssetMetrics } from "@/types/portfolio";
 import { SellAssetModal } from "@/components/dashboard/SellAssetModal";
+import { useLang } from "@/store/langStore";
+import { t } from "@/lib/i18n";
 
 interface Props {
   assets: Asset[];
@@ -19,6 +21,7 @@ type SortKey = "name" | "value" | "pnl" | "roi" | "liquidity" | "risk";
 export function AssetTable({ assets, metrics }: Props) {
   const router = useRouter();
   const { fmtCents } = useCurrency();
+  const { lang } = useLang();
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortAsc, setSortAsc] = useState(false);
   const [sellAsset, setSellAsset] = useState<Asset | null>(null);
@@ -86,26 +89,26 @@ export function AssetTable({ assets, metrics }: Props) {
       <table className="min-w-full divide-y divide-[#162035] bg-[#0E1830] text-sm">
         <thead>
           <tr className="bg-[#080F1C]">
-            <SortTh label="Asset" colKey="name" />
+            <SortTh label={t(lang, "app_col_asset")} colKey="name" />
             <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070]">
-              Class
+              {t(lang, "app_col_class")}
             </th>
             <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070]">
-              Units
+              {t(lang, "app_col_units")}
             </th>
-            <SortTh label="Value" colKey="value" />
-            <SortTh label="P&L" colKey="pnl" />
+            <SortTh label={t(lang, "app_col_value")} colKey="value" />
+            <SortTh label={t(lang, "app_col_pnl")} colKey="pnl" />
             <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070] cursor-pointer select-none" onClick={() => toggleSort("roi")}>
-              ROI {sortKey === "roi" ? (sortAsc ? "↑" : "↓") : ""}
+              {t(lang, "app_col_roi")} {sortKey === "roi" ? (sortAsc ? "↑" : "↓") : ""}
             </th>
             <th className="hidden xl:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070]">
-              Net After Fee
+              {t(lang, "app_col_net_fee")}
             </th>
             <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070] cursor-pointer select-none" onClick={() => toggleSort("liquidity")}>
-              Liquidity {sortKey === "liquidity" ? (sortAsc ? "↑" : "↓") : ""}
+              {t(lang, "app_col_liquidity")} {sortKey === "liquidity" ? (sortAsc ? "↑" : "↓") : ""}
             </th>
             <th className="hidden lg:table-cell px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#3E5070] cursor-pointer select-none" onClick={() => toggleSort("risk")}>
-              Risk {sortKey === "risk" ? (sortAsc ? "↑" : "↓") : ""}
+              {t(lang, "app_col_risk")} {sortKey === "risk" ? (sortAsc ? "↑" : "↓") : ""}
             </th>
             <th className="px-4 py-3" />
           </tr>
@@ -153,6 +156,15 @@ export function AssetTable({ assets, metrics }: Props) {
                       {asset.grade !== undefined && (
                         <span className="text-xs text-amber-400">PSA {asset.grade}</span>
                       )}
+                      {asset.assetClass === "games_tech" && asset.cexSellPriceCents != null && asset.currentPriceCents > 0 && (() => {
+                        const premium = Math.round((asset.cexSellPriceCents - asset.currentPriceCents) / asset.currentPriceCents * 100);
+                        const color = premium < 15 ? "text-emerald-400" : premium < 30 ? "text-amber-400" : "text-red-400";
+                        return (
+                          <span className={`font-mono text-[10px] ${color}`}>
+                            CeX {premium > 0 ? "+" : ""}{premium}%
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                 </td>

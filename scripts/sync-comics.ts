@@ -18,6 +18,7 @@
 import path from "path";
 import fs from "fs";
 import type { ComicRecord } from "../src/lib/comicRecord";
+import { upsertIssues, getByCvId, getStats } from "../src/lib/comicsDb";
 
 // ─── Load .env.local ──────────────────────────────────────────────────────────
 

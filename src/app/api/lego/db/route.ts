@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getAll, getStats, isEmpty } from "@/lib/legoDb";
 import type { LegoSetRecord } from "@/lib/legoSetRecord";
@@ -26,9 +27,9 @@ export async function GET(req: NextRequest) {
   const limit    = searchParams.get("limit")    ? parseInt(searchParams.get("limit")!)    : null;
   const offset   = searchParams.get("offset")   ? parseInt(searchParams.get("offset")!)   : 0;
 
-  const stats = getStats();
+  const [stats, empty] = await Promise.all([getStats(), isEmpty()]);
 
-  if (isEmpty()) {
+  if (empty) {
     return NextResponse.json<LegoDbResponse>({
       sets: [],
       total: 0,
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  let sets = getAll();
+  let sets = await getAll();
 
   // Apply filters
   if (minYear != null)  sets = sets.filter((s) => (s.year ?? 0) >= minYear);

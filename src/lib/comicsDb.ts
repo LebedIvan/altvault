@@ -1,43 +1,52 @@
 /**
- * Server-side only — uses Node.js `fs`.
- * Stores the merged comics database in data/comics-db.json.
+ * Server-side only — uses Neon DB via Drizzle ORM.
+ * Replaces the previous fs-based implementation.
  */
-import fs from "fs";
-import path from "path";
+import { eq, ilike, or, sql } from "drizzle-orm";
+import { db, comics } from "./db";
 import type { ComicRecord } from "./comicRecord";
 
-const DB_PATH = path.join(process.cwd(), "data", "comics-db.json");
+// ─── Converters ───────────────────────────────────────────────────────────────
 
-// ─── Internal file shape ──────────────────────────────────────────────────────
-
-interface ComicsDbFile {
-  version: number;
-  syncedAt: string | null;
-  totalIssues: number;
-  issues: Record<string, ComicRecord>; // keyed by cvId
+function recordToRow(r: Partial<ComicRecord> & { cvId: string; volumeName: string; issueNumber: string }) {
+  return {
+    cvId:           r.cvId,
+    volumeName:     r.volumeName,
+    volumeCvId:     r.volumeCvId    ?? null,
+    issueNumber:    r.issueNumber,
+    name:           r.name          ?? null,
+    publisher:      r.publisher     ?? null,
+    coverDate:      r.coverDate     ?? null,
+    coverImageUrl:  r.coverImageUrl ?? null,
+    description:    r.description   ?? null,
+    isKeyIssue:     r.isKeyIssue    ?? false,
+    keyIssueReason: r.keyIssueReason ?? null,
+    characters:     r.characters    ?? [],
+    storyArcs:      r.storyArcs     ?? [],
+    cvUrl:          r.cvUrl         ?? null,
+    sources:        r.sources       ?? [],
+    lastSyncedAt:   new Date().toISOString(),
+  };
 }
 
-const EMPTY: ComicsDbFile = {
-  version: 1,
-  syncedAt: null,
-  totalIssues: 0,
-  issues: {},
-};
-
-// ─── Low-level I/O ────────────────────────────────────────────────────────────
-
-export function readDb(): ComicsDbFile {
-  try {
-    const raw = fs.readFileSync(DB_PATH, "utf8");
-    return JSON.parse(raw) as ComicsDbFile;
-  } catch {
-    return { ...EMPTY, issues: {} };
-  }
-}
-
-export function writeDb(db: ComicsDbFile): void {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+function rowToRecord(row: typeof comics.$inferSelect): ComicRecord {
+  return {
+    cvId:           row.cvId,
+    volumeName:     row.volumeName,
+    volumeCvId:     row.volumeCvId    ?? undefined,
+    issueNumber:    row.issueNumber,
+    name:           row.name          ?? undefined,
+    publisher:      row.publisher     ?? undefined,
+    coverDate:      row.coverDate     ?? undefined,
+    coverImageUrl:  row.coverImageUrl ?? undefined,
+    description:    row.description   ?? undefined,
+    isKeyIssue:     row.isKeyIssue,
+    keyIssueReason: row.keyIssueReason ?? undefined,
+    characters:     (row.characters as string[]) ?? [],
+    storyArcs:      (row.storyArcs as string[])  ?? [],
+    cvUrl:          row.cvUrl         ?? undefined,
+    sources:        (row.sources as string[])     ?? [],
+  };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -46,89 +55,96 @@ export function writeDb(db: ComicsDbFile): void {
  * Upsert a batch of issue records.
  * Merge strategy: existing non-null values are preserved if incoming value is null/undefined.
  */
-export function upsertIssues(incoming: Partial<ComicRecord>[]): void {
-  const db = readDb();
+export async function upsertIssues(incoming: Partial<ComicRecord>[]): Promise<void> {
+  const valid = incoming.filter(
+    (r): r is Partial<ComicRecord> & { cvId: string; volumeName: string; issueNumber: string } =>
+      !!r.cvId && !!r.volumeName && !!r.issueNumber,
+  );
+  if (valid.length === 0) return;
 
-  for (const issue of incoming) {
-    if (!issue.cvId) continue;
-    const existing = db.issues[issue.cvId];
-    if (!existing) {
-      db.issues[issue.cvId] = issue as ComicRecord;
-    } else {
-      const merged: ComicRecord = { ...existing };
-      for (const key of Object.keys(issue) as (keyof ComicRecord)[]) {
-        const val = issue[key];
-        if (val !== null && val !== undefined) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (merged as any)[key] = val;
-        }
-      }
-      // Always merge sources array
-      if (issue.sources) {
-        merged.sources = Array.from(new Set([...existing.sources, ...issue.sources]));
-      }
-      // Always merge arrays
-      if (issue.characters?.length) {
-        merged.characters = Array.from(new Set([...existing.characters, ...issue.characters]));
-      }
-      if (issue.storyArcs?.length) {
-        merged.storyArcs = Array.from(new Set([...existing.storyArcs, ...issue.storyArcs]));
-      }
-      db.issues[issue.cvId] = merged;
-    }
+  const CHUNK = 100;
+  for (let i = 0; i < valid.length; i += CHUNK) {
+    const chunk = valid.slice(i, i + CHUNK);
+    await db.insert(comics)
+      .values(chunk.map(recordToRow))
+      .onConflictDoUpdate({
+        target: comics.cvId,
+        set: {
+          volumeName:     sql`CASE WHEN excluded.volume_name != '' THEN excluded.volume_name ELSE comics.volume_name END`,
+          volumeCvId:     sql`COALESCE(excluded.volume_cv_id, comics.volume_cv_id)`,
+          issueNumber:    sql`CASE WHEN excluded.issue_number != '' THEN excluded.issue_number ELSE comics.issue_number END`,
+          name:           sql`COALESCE(excluded.name, comics.name)`,
+          publisher:      sql`COALESCE(excluded.publisher, comics.publisher)`,
+          coverDate:      sql`COALESCE(excluded.cover_date, comics.cover_date)`,
+          coverImageUrl:  sql`COALESCE(excluded.cover_image_url, comics.cover_image_url)`,
+          description:    sql`COALESCE(excluded.description, comics.description)`,
+          isKeyIssue:     sql`excluded.is_key_issue OR comics.is_key_issue`,
+          keyIssueReason: sql`COALESCE(excluded.key_issue_reason, comics.key_issue_reason)`,
+          characters:     sql`(SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(COALESCE(comics.characters, '[]'::jsonb) || COALESCE(excluded.characters, '[]'::jsonb)) AS elem)`,
+          storyArcs:      sql`(SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(COALESCE(comics.story_arcs, '[]'::jsonb) || COALESCE(excluded.story_arcs, '[]'::jsonb)) AS elem)`,
+          cvUrl:          sql`COALESCE(excluded.cv_url, comics.cv_url)`,
+          sources:        sql`(SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(COALESCE(comics.sources, '[]'::jsonb) || COALESCE(excluded.sources, '[]'::jsonb)) AS elem)`,
+          lastSyncedAt:   sql`excluded.last_synced_at`,
+        },
+      });
   }
-
-  db.totalIssues = Object.keys(db.issues).length;
-  db.syncedAt    = new Date().toISOString();
-  writeDb(db);
 }
 
-export function getAll(): ComicRecord[] {
-  return Object.values(readDb().issues);
+export async function getAll(): Promise<ComicRecord[]> {
+  const rows = await db.select().from(comics);
+  return rows.map(rowToRecord);
 }
 
-export function getByCvId(cvId: string): ComicRecord | null {
-  return readDb().issues[cvId] ?? null;
+export async function getByCvId(cvId: string): Promise<ComicRecord | null> {
+  const rows = await db.select().from(comics).where(eq(comics.cvId, cvId)).limit(1);
+  return rows[0] ? rowToRecord(rows[0]) : null;
 }
 
 /** Search by volume name or issue title (case-insensitive substring). */
-export function search(query: string, limit = 20): ComicRecord[] {
-  const lq = query.toLowerCase();
-  return getAll()
-    .filter(
-      (c) =>
-        c.volumeName.toLowerCase().includes(lq) ||
-        (c.name ?? "").toLowerCase().includes(lq) ||
-        (c.keyIssueReason ?? "").toLowerCase().includes(lq),
-    )
-    .slice(0, limit);
+export async function search(query: string, limit = 20): Promise<ComicRecord[]> {
+  const term = `%${query}%`;
+  const rows = await db.select().from(comics)
+    .where(or(
+      ilike(comics.volumeName, term),
+      ilike(comics.name, term),
+      ilike(comics.keyIssueReason, term),
+    ))
+    .limit(limit);
+  return rows.map(rowToRecord);
 }
 
-export function getKeyIssues(limit = 100): ComicRecord[] {
-  return getAll()
-    .filter((c) => c.isKeyIssue)
-    .sort((a, b) => (a.coverDate ?? "").localeCompare(b.coverDate ?? ""))
-    .slice(0, limit);
+export async function getKeyIssues(limit = 100): Promise<ComicRecord[]> {
+  const rows = await db.select().from(comics)
+    .where(eq(comics.isKeyIssue, true))
+    .orderBy(sql`cover_date ASC NULLS LAST`)
+    .limit(limit);
+  return rows.map(rowToRecord);
 }
 
-export function getStats(): {
+export async function getStats(): Promise<{
   totalIssues: number;
   keyIssues: number;
   withImages: number;
   withDescriptions: number;
   syncedAt: string | null;
-} {
-  const db = readDb();
-  const issues = Object.values(db.issues);
+}> {
+  const [[total], [keyIssues], [withImages], [withDesc], [last]] = await Promise.all([
+    db.select({ c: sql<number>`count(*)::int` }).from(comics),
+    db.select({ c: sql<number>`count(*)::int` }).from(comics).where(eq(comics.isKeyIssue, true)),
+    db.select({ c: sql<number>`count(*)::int` }).from(comics).where(sql`cover_image_url IS NOT NULL`),
+    db.select({ c: sql<number>`count(*)::int` }).from(comics).where(sql`description IS NOT NULL`),
+    db.select({ t: sql<string | null>`max(last_synced_at)` }).from(comics),
+  ]);
   return {
-    totalIssues:      issues.length,
-    keyIssues:        issues.filter((c) => c.isKeyIssue).length,
-    withImages:       issues.filter((c) => c.coverImageUrl).length,
-    withDescriptions: issues.filter((c) => c.description).length,
-    syncedAt:         db.syncedAt,
+    totalIssues:      total?.c      ?? 0,
+    keyIssues:        keyIssues?.c  ?? 0,
+    withImages:       withImages?.c ?? 0,
+    withDescriptions: withDesc?.c   ?? 0,
+    syncedAt:         last?.t       ?? null,
   };
 }
 
-export function isEmpty(): boolean {
-  return readDb().totalIssues === 0;
+export async function isEmpty(): Promise<boolean> {
+  const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(comics);
+  return (row?.c ?? 0) === 0;
 }

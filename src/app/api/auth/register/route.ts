@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { createUser, DEMO_COOKIE } from "@/lib/authServer";
 import { sendVerificationEmail } from "@/lib/mailer";
@@ -13,13 +14,15 @@ export async function POST(req: NextRequest) {
     if (password.length < 6)
       return NextResponse.json({ error: "Пароль минимум 6 символов" }, { status: 400 });
 
-    const user = createUser(email, name, password);
+    const user = await createUser(email, name, password);
 
-    // Send verification email (non-blocking — don't fail registration if mail fails)
+    // Send verification email
+    let mailError: string | null = null;
     try {
       await sendVerificationEmail(user.email, user.name, user.verifyToken!);
     } catch (mailErr) {
-      console.error("Failed to send verification email:", mailErr);
+      mailError = String(mailErr);
+      console.error("[register] Failed to send verification email:", mailErr);
     }
 
     // Return "requiresVerification" — don't set JWT yet
@@ -27,6 +30,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       requiresVerification: true,
       user: { id: user.id, email: user.email, name: user.name },
+      ...(mailError ? { mailError } : {}),
     });
     // Clear demo cookie if the user was in demo mode
     res.cookies.set(DEMO_COOKIE, "", { maxAge: 0, path: "/" });

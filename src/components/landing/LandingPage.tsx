@@ -2,13 +2,15 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import type { Lang, Variant } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import { HeroA } from "./HeroA";
-import { HeroB } from "./HeroB";
-import { HeroC } from "./HeroC";
-import { LandingFeatures } from "./LandingFeatures";
-import { LandingPricing } from "./LandingPricing";
+
+const HeroB           = dynamic(() => import("./HeroB").then(m => m.HeroB));
+const HeroC           = dynamic(() => import("./HeroC").then(m => m.HeroC));
+const LandingFeatures = dynamic(() => import("./LandingFeatures").then(m => m.LandingFeatures));
+const LandingPricing  = dynamic(() => import("./LandingPricing").then(m => m.LandingPricing));
 
 interface Props {
   lang:    Lang;
@@ -38,14 +40,6 @@ function useTrack(lang: Lang, variant: Variant, utmSrc: string) {
   return (plan: "free" | "premium") => track("conversion", plan);
 }
 
-// ─── Language switcher ────────────────────────────────────────────────────────
-
-const LANGS: { code: Lang; label: string }[] = [
-  { code: "en", label: "EN" },
-  { code: "ru", label: "RU" },
-  { code: "es", label: "ES" },
-];
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function LandingPage({ lang, variant, utmSrc }: Props) {
@@ -55,7 +49,7 @@ export function LandingPage({ lang, variant, utmSrc }: Props) {
     <div className="min-h-screen bg-[#0B1120] text-[#E8F0FF]">
 
       {/* Nav */}
-      <header className="sticky top-0 z-20 border-b border-[#1C2640]/50 bg-[#0B1120]/90 backdrop-blur-xl">
+      <header className="sticky top-0 z-20 border-b border-[#1C2640]/50 bg-[#0C1222]">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           <Link href="/" className="flex items-center gap-2">
             <img src="/logo.png" alt="Vaulty" className="h-7 w-7 rounded-lg object-cover" />
@@ -63,23 +57,6 @@ export function LandingPage({ lang, variant, utmSrc }: Props) {
           </Link>
 
           <div className="flex items-center gap-2">
-            {/* Language switcher */}
-            <div className="flex items-center gap-0.5 rounded-lg border border-[#1C2640] p-0.5">
-              {LANGS.map(({ code, label }) => (
-                <Link
-                  key={code}
-                  href={`/${code}`}
-                  className={`rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors ${
-                    lang === code
-                      ? "bg-[#F59E0B]/15 text-[#F59E0B]"
-                      : "text-[#2A3A50] hover:text-[#4E6080]"
-                  }`}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-
             <Link
               href="/login"
               className="rounded-lg border border-[#1C2640] px-3 py-1.5 text-xs text-[#4E6080] hover:text-[#E8F0FF] transition-colors"

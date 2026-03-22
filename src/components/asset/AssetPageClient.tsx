@@ -11,6 +11,7 @@ import { PriceHistoryChart } from "./PriceHistoryChart";
 import { AssetDetails } from "./AssetDetails";
 import { EbaySoldPanel } from "./EbaySoldPanel";
 import { SellAssetModal } from "@/components/dashboard/SellAssetModal";
+import { EditAssetModal } from "@/components/dashboard/EditAssetModal";
 import type { Asset } from "@/types/asset";
 
 function buildComicsEbayQuery(asset: Asset): string {
@@ -23,6 +24,7 @@ export function AssetPageClient() {
   const { id } = useParams<{ id: string }>();
   const { assets, isLoaded, updatePrice } = usePortfolio();
   const [showSell, setShowSell] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
 
   // Price refresh state
   const [refreshing, setRefreshing]     = useState(false);
@@ -86,7 +88,13 @@ export function AssetPageClient() {
           <span className="text-sm font-medium text-[#B0C4DE] truncate max-w-xs">
             {asset.name}
           </span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setShowEdit(true)}
+              className="rounded-lg border border-[#1C2640] px-4 py-1.5 text-sm font-semibold text-[#4E6080] hover:border-[#F59E0B]/40 hover:text-[#F59E0B] transition-colors"
+            >
+              Изменить
+            </button>
             <button
               onClick={() => setShowSell(true)}
               className="rounded-lg bg-[#F87171]/20 px-4 py-1.5 text-sm font-semibold text-[#F87171] hover:bg-[#F87171]/40 transition-colors"
@@ -129,6 +137,9 @@ export function AssetPageClient() {
 
       {showSell && (
         <SellAssetModal asset={asset} onClose={() => setShowSell(false)} />
+      )}
+      {showEdit && (
+        <EditAssetModal asset={asset} onClose={() => setShowEdit(false)} />
       )}
     </div>
   );

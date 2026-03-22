@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 /**
  * Comics price lookup.
  *
@@ -41,7 +42,7 @@ async function getComicMetaFromDb(cvId: string): Promise<ComicMeta | null> {
   try {
     // Dynamic import keeps Node.js fs out of the edge runtime
     const { getByCvId } = await import("@/lib/comicsDb");
-    const record = getByCvId(cvId);
+    const record = await getByCvId(cvId);
     if (!record) return null;
     return {
       volumeName:  record.volumeName,

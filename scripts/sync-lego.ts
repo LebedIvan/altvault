@@ -16,6 +16,7 @@
 import path from "path";
 import fs from "fs";
 import type { LegoSetRecord } from "../src/lib/legoSetRecord";
+import { upsertSets } from "../src/lib/legoDb";
 
 // ─── Load .env.local ──────────────────────────────────────────────────────────
 
@@ -453,6 +454,19 @@ async function main() {
   db.syncedAt  = new Date().toISOString();
   db.totalSets = Object.keys(db.sets).length;
   saveDb(db);
+
+  // Also push to Neon DB
+  if (process.env.DATABASE_URL) {
+    log("Upserting to Neon DB...");
+    try {
+      await upsertSets(Object.values(db.sets));
+      log("✓ Neon DB sync complete");
+    } catch (e) {
+      log(`⚠ Neon DB sync failed: ${e}`);
+    }
+  } else {
+    log("⚠ DATABASE_URL not set — skipping Neon DB sync");
+  }
 
   const stats = {
     total:      db.totalSets,

@@ -22,6 +22,10 @@ export interface Suggestion {
   imageThumbnailUrl?: string;
   /** Currency override */
   currency?: string;
+  /** Condition-specific prices for games_tech (loose / CIB / sealed) */
+  loosePriceCents?: number | null;
+  cibPriceCents?:   number | null;
+  newPriceCents?:   number | null;
 }
 
 interface Props {

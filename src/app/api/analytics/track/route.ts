@@ -1,9 +1,7 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { z } from "zod";
-
-const EVENTS_PATH = path.join(process.cwd(), "data/ab-events.jsonl");
+import { db, abEvents } from "@/lib/db";
 
 const EventSchema = z.object({
   t:    z.enum(["pageview", "conversion", "paid"]),
@@ -22,15 +20,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
-  const event = {
-    ...body,
-    ts: new Date().toISOString(),
-    ip: (req.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim().slice(0, 40),
-  };
+  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim().slice(0, 40) ?? null;
 
   try {
-    fs.mkdirSync(path.dirname(EVENTS_PATH), { recursive: true });
-    fs.appendFileSync(EVENTS_PATH, JSON.stringify(event) + "\n");
+    await db.insert(abEvents).values({
+      eventType: body.t,
+      variant:   body.v,
+      lang:      body.lang,
+      src:       body.src ?? "direct",
+      plan:      body.plan ?? null,
+      sessionId: body.sid ?? null,
+      ip,
+    });
   } catch (e) {
     console.error("analytics write error", e);
   }

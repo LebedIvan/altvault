@@ -5,7 +5,7 @@ import { useAuth } from "@/store/authStore";
 import { PortfolioProvider } from "@/store/portfolioStore";
 import { AutoPriceRefresh } from "@/components/AutoPriceRefresh";
 
-const PUBLIC_PATHS = ["/landing", "/login", "/register", "/verify-email", "/success"];
+const PUBLIC_PATHS = ["/landing", "/en", "/ru", "/es", "/go", "/merlin", "/login", "/register", "/verify-email", "/success", "/forgot-password", "/reset-password"];
 
 /**
  * Bridges AuthProvider → PortfolioProvider.
@@ -21,8 +21,8 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // While checking auth, render a blank screen to avoid flash of wrong content
-  if (mode === "loading") {
+  // While checking auth or after logout, render a blank screen to avoid flash of wrong content
+  if (mode === "loading" || mode === "none") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0d1117]">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-sky-500" />

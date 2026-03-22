@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 /**
  * Sports cards search — uses PriceCharting API if PRICECHARTING_API_KEY is set,
  * otherwise falls back to static popular-card suggestions.

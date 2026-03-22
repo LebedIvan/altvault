@@ -1,109 +1,142 @@
 /**
- * Server-side only — uses Node.js `fs`.
- * Stores the merged LEGO set database in data/lego-db.json.
+ * Server-side only — uses Neon DB via Drizzle ORM.
+ * All functions are async.
  */
-import fs from "fs";
-import path from "path";
+import { eq, isNotNull, sql } from "drizzle-orm";
+import { db, legoSets } from "./db";
 import type { LegoSetRecord } from "./legoSetRecord";
 
-const DB_PATH = path.join(process.cwd(), "data", "lego-db.json");
+// ─── Converters ───────────────────────────────────────────────────────────────
 
-// ─── Internal file shape ──────────────────────────────────────────────────────
-
-interface LegoDbFile {
-  version: number;
-  syncedAt: string | null;
-  totalSets: number;
-  sets: Record<string, LegoSetRecord>;
+function recordToRow(s: Partial<LegoSetRecord>) {
+  return {
+    setNumber:            s.setNumber!,
+    name:                 s.name ?? "",
+    theme:                s.theme ?? "",
+    themeId:              s.themeId ?? null,
+    year:                 s.year ?? null,
+    pieces:               s.pieces ?? null,
+    imageUrl:             s.imageUrl ?? null,
+    brickowlId:           s.brickowlId ?? null,
+    brickowlUrl:          s.brickowlUrl ?? null,
+    marketPriceGbp:       s.marketPriceGbp ?? null,
+    marketPriceUpdatedAt: s.marketPriceUpdatedAt ?? null,
+    launchDate:           s.launchDate ?? null,
+    exitDate:             s.exitDate ?? null,
+    msrpUsd:              s.msrpUsd ?? null,
+    msrpGbp:              s.msrpGbp ?? null,
+    msrpEur:              s.msrpEur ?? null,
+    rebrickableUrl:       s.rebrickableUrl ?? null,
+    bricksetUrl:          s.bricksetUrl ?? "",
+    sources:              s.sources ?? [],
+    lastSyncedAt:         new Date().toISOString(),
+  };
 }
 
-const EMPTY: LegoDbFile = {
-  version: 1,
-  syncedAt: null,
-  totalSets: 0,
-  sets: {},
-};
-
-// ─── Low-level I/O ────────────────────────────────────────────────────────────
-
-export function readDb(): LegoDbFile {
-  try {
-    const raw = fs.readFileSync(DB_PATH, "utf8");
-    return JSON.parse(raw) as LegoDbFile;
-  } catch {
-    return { ...EMPTY, sets: {} };
-  }
-}
-
-export function writeDb(db: LegoDbFile): void {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+function rowToRecord(row: typeof legoSets.$inferSelect): LegoSetRecord {
+  return {
+    setNumber:            row.setNumber,
+    name:                 row.name,
+    theme:                row.theme,
+    themeId:              row.themeId ?? null,
+    year:                 row.year ?? null,
+    pieces:               row.pieces ?? null,
+    imageUrl:             row.imageUrl ?? null,
+    brickowlId:           row.brickowlId ?? null,
+    brickowlUrl:          row.brickowlUrl ?? null,
+    marketPriceGbp:       row.marketPriceGbp ?? null,
+    marketPriceUpdatedAt: row.marketPriceUpdatedAt ?? null,
+    launchDate:           row.launchDate ?? null,
+    exitDate:             row.exitDate ?? null,
+    msrpUsd:              row.msrpUsd ?? null,
+    msrpGbp:              row.msrpGbp ?? null,
+    msrpEur:              row.msrpEur ?? null,
+    rebrickableUrl:       row.rebrickableUrl ?? null,
+    bricksetUrl:          row.bricksetUrl,
+    sources:              (row.sources as string[]) ?? [],
+    lastSyncedAt:         row.lastSyncedAt ?? new Date().toISOString(),
+  };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Upsert a batch of set records.
- * Merge strategy: existing non-null values are preserved if incoming value is null.
- * Pricing fields (marketPriceGbp) always overwrite when incoming is non-null.
+ * Merge strategy: COALESCE(new, existing) — existing non-null values are
+ * preserved when the incoming value is null.
  */
-export function upsertSets(incoming: Partial<LegoSetRecord>[]): void {
-  const db = readDb();
+export async function upsertSets(incoming: Partial<LegoSetRecord>[]): Promise<void> {
+  const valid = incoming.filter((s) => s.setNumber);
+  if (valid.length === 0) return;
 
-  for (const s of incoming) {
-    if (!s.setNumber) continue;
-    const existing = db.sets[s.setNumber];
-    if (!existing) {
-      db.sets[s.setNumber] = s as LegoSetRecord;
-    } else {
-      // Merge: prefer non-null, except always update pricing + lastSyncedAt
-      const merged: LegoSetRecord = { ...existing };
-      for (const key of Object.keys(s) as (keyof LegoSetRecord)[]) {
-        const val = s[key];
-        if (val !== null && val !== undefined) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (merged as any)[key] = val;
-        }
-      }
-      // Always merge sources array
-      if (s.sources) {
-        merged.sources = Array.from(new Set([...existing.sources, ...s.sources]));
-      }
-      db.sets[s.setNumber] = merged;
-    }
+  // Process in chunks of 100 to keep queries manageable
+  const CHUNK = 100;
+  for (let i = 0; i < valid.length; i += CHUNK) {
+    const chunk = valid.slice(i, i + CHUNK);
+    await db.insert(legoSets)
+      .values(chunk.map(recordToRow))
+      .onConflictDoUpdate({
+        target: legoSets.setNumber,
+        set: {
+          name:                 sql`CASE WHEN excluded.name != '' THEN excluded.name ELSE lego_sets.name END`,
+          theme:                sql`CASE WHEN excluded.theme != '' THEN excluded.theme ELSE lego_sets.theme END`,
+          themeId:              sql`COALESCE(excluded.theme_id, lego_sets.theme_id)`,
+          year:                 sql`COALESCE(excluded.year, lego_sets.year)`,
+          pieces:               sql`COALESCE(excluded.pieces, lego_sets.pieces)`,
+          imageUrl:             sql`COALESCE(excluded.image_url, lego_sets.image_url)`,
+          brickowlId:           sql`COALESCE(excluded.brickowl_id, lego_sets.brickowl_id)`,
+          brickowlUrl:          sql`COALESCE(excluded.brickowl_url, lego_sets.brickowl_url)`,
+          marketPriceGbp:       sql`COALESCE(excluded.market_price_gbp, lego_sets.market_price_gbp)`,
+          marketPriceUpdatedAt: sql`COALESCE(excluded.market_price_updated_at, lego_sets.market_price_updated_at)`,
+          launchDate:           sql`COALESCE(excluded.launch_date, lego_sets.launch_date)`,
+          exitDate:             sql`COALESCE(excluded.exit_date, lego_sets.exit_date)`,
+          msrpUsd:              sql`COALESCE(excluded.msrp_usd, lego_sets.msrp_usd)`,
+          msrpGbp:              sql`COALESCE(excluded.msrp_gbp, lego_sets.msrp_gbp)`,
+          msrpEur:              sql`COALESCE(excluded.msrp_eur, lego_sets.msrp_eur)`,
+          rebrickableUrl:       sql`COALESCE(excluded.rebrickable_url, lego_sets.rebrickable_url)`,
+          bricksetUrl:          sql`CASE WHEN excluded.brickset_url != '' THEN excluded.brickset_url ELSE lego_sets.brickset_url END`,
+          sources:              sql`(SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(COALESCE(lego_sets.sources, '[]'::jsonb) || COALESCE(excluded.sources, '[]'::jsonb)) AS elem)`,
+          lastSyncedAt:         sql`excluded.last_synced_at`,
+        },
+      });
   }
-
-  db.totalSets = Object.keys(db.sets).length;
-  db.syncedAt  = new Date().toISOString();
-  writeDb(db);
 }
 
-export function getAll(): LegoSetRecord[] {
-  return Object.values(readDb().sets);
+export async function getAll(): Promise<LegoSetRecord[]> {
+  const rows = await db.select().from(legoSets);
+  return rows.map(rowToRecord);
 }
 
-export function getByNumber(setNumber: string): LegoSetRecord | null {
-  return readDb().sets[setNumber] ?? null;
+export async function getByNumber(setNumber: string): Promise<LegoSetRecord | null> {
+  const rows = await db.select().from(legoSets).where(eq(legoSets.setNumber, setNumber)).limit(1);
+  return rows[0] ? rowToRecord(rows[0]) : null;
 }
 
-export function getStats(): {
-  totalSets: number;
+export async function getStats(): Promise<{
+  totalSets:    number;
   withBrickowl: number;
-  withPrices: number;
-  withDates: number;
-  syncedAt: string | null;
-} {
-  const db = readDb();
-  const sets = Object.values(db.sets);
+  withPrices:   number;
+  withDates:    number;
+  syncedAt:     string | null;
+}> {
+  const [[total], [brickowl], [prices], [dates], [last]] = await Promise.all([
+    db.select({ c: sql<number>`count(*)::int` }).from(legoSets),
+    db.select({ c: sql<number>`count(*)::int` }).from(legoSets).where(isNotNull(legoSets.brickowlId)),
+    db.select({ c: sql<number>`count(*)::int` }).from(legoSets).where(isNotNull(legoSets.marketPriceGbp)),
+    db.select({ c: sql<number>`count(*)::int` }).from(legoSets).where(isNotNull(legoSets.launchDate)),
+    db.select({ t: sql<string | null>`max(last_synced_at)` }).from(legoSets),
+  ]);
+
   return {
-    totalSets:   sets.length,
-    withBrickowl: sets.filter((s) => s.brickowlId).length,
-    withPrices:  sets.filter((s) => s.marketPriceGbp != null).length,
-    withDates:   sets.filter((s) => s.launchDate).length,
-    syncedAt:    db.syncedAt,
+    totalSets:    total?.c ?? 0,
+    withBrickowl: brickowl?.c ?? 0,
+    withPrices:   prices?.c ?? 0,
+    withDates:    dates?.c ?? 0,
+    syncedAt:     last?.t ?? null,
   };
 }
 
-export function isEmpty(): boolean {
-  return readDb().totalSets === 0;
+export async function isEmpty(): Promise<boolean> {
+  const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(legoSets);
+  return (row?.c ?? 0) === 0;
 }

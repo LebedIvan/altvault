@@ -46,6 +46,7 @@ const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
   { value: "anime_cels",              label: "Аниме целлы"                },
   { value: "commodities",             label: "Сырьевые товары"            },
   { value: "sports_betting",          label: "Ставки"                     },
+  { value: "games_tech",              label: "Игры & Техника"              },
 ];
 
 const SPORTS_CARD_CLASSES: AssetClass[] = [
@@ -316,6 +317,40 @@ async function fetchComicsSuggestions(query: string): Promise<Suggestion[]> {
   }
 }
 
+async function fetchGamesTechSuggestions(query: string): Promise<Suggestion[]> {
+  if (query.length < 2) return [];
+  try {
+    const res = await fetch(`/api/search/games-tech?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      suggestions: {
+        id: string;
+        fullName: string;
+        platform: string;
+        loosePriceCents: number | null;
+        cibPriceCents: number | null;
+        newPriceCents: number | null;
+        priceCents: number | null;
+        currency: string;
+      }[];
+    };
+    return (data.suggestions ?? []).map((s) => ({
+      label:           s.fullName,
+      value:           s.fullName,
+      externalId:      s.id,
+      priceCents:      s.loosePriceCents ?? s.priceCents,
+      loosePriceCents: s.loosePriceCents,
+      cibPriceCents:   s.cibPriceCents,
+      newPriceCents:   s.newPriceCents,
+      meta:            s.platform,
+      currency:        s.currency ?? "USD",
+      iconUrl:         null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -346,6 +381,8 @@ export function AddAssetModal({ onClose }: Props) {
   const [errors, setErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
   const [imageUrl, setImageUrl] = useState<string | undefined>();
   const [imageThumbnailUrl, setImageThumbnailUrl] = useState<string | undefined>();
+  // Games & Tech: stores loose/CIB/new prices for condition-aware pricing
+  const [gamesPrices, setGamesPrices] = useState<{ loose: number | null; cib: number | null; newP: number | null } | null>(null);
 
   function set(key: keyof FormValues, value: string) {
     setForm((prev) => {
@@ -357,6 +394,17 @@ export function AddAssetModal({ onClose }: Props) {
         next.externalId = "";
         setImageUrl(undefined);
         setImageThumbnailUrl(undefined);
+        setGamesPrices(null);
+      }
+      // Games & Tech: update price when condition changes
+      if (key === "condition" && prev.assetClass === "games_tech" && gamesPrices) {
+        const priceMap: Record<string, number | null> = {
+          fair:      gamesPrices.loose,
+          near_mint: gamesPrices.cib,
+          mint:      gamesPrices.newP,
+        };
+        const mapped = priceMap[value] ?? null;
+        if (mapped != null) next.currentPriceCents = (mapped / 100).toFixed(2);
       }
       return next;
     });
@@ -366,35 +414,65 @@ export function AddAssetModal({ onClose }: Props) {
   // Called when user picks a suggestion
   const handleSuggestionSelect = useCallback(
     (suggestion: Suggestion) => {
-      setForm((prev) => ({
-        ...prev,
-        name:              suggestion.value,
-        externalId:        suggestion.externalId ?? prev.externalId,
-        currency:          (suggestion.currency as "EUR" | "USD" | "GBP") ?? prev.currency,
-        currentPriceCents:
-          suggestion.priceCents != null
-            ? (suggestion.priceCents / 100).toFixed(2)
-            : prev.currentPriceCents,
-        buyPrice:
-          prev.buyPrice === "" && suggestion.priceCents != null
-            ? (suggestion.priceCents / 100).toFixed(2)
-            : prev.buyPrice,
-      }));
+      // Games & Tech: condition-aware pricing
+      const isGamesTech = suggestion.loosePriceCents !== undefined || suggestion.cibPriceCents !== undefined;
+      if (isGamesTech) {
+        const gp = {
+          loose: suggestion.loosePriceCents ?? null,
+          cib:   suggestion.cibPriceCents   ?? null,
+          newP:  suggestion.newPriceCents   ?? null,
+        };
+        setGamesPrices(gp);
+        setForm((prev) => ({
+          ...prev,
+          name:              suggestion.value,
+          externalId:        suggestion.externalId ?? prev.externalId,
+          currency:          (suggestion.currency as "EUR" | "USD" | "GBP") ?? "USD",
+          currentPriceCents: gp.loose != null ? (gp.loose / 100).toFixed(2) : prev.currentPriceCents,
+          buyPrice:          prev.buyPrice === "" && gp.loose != null ? (gp.loose / 100).toFixed(2) : prev.buyPrice,
+          condition:         "fair",
+          liquidityDays:     "14",
+          riskScore:         "45",
+        }));
+        setErrors((prev) => ({ ...prev, name: undefined, currentPriceCents: undefined }));
+        return;
+      }
+
+      setForm((prev) => {
+        const isLegoClass = prev.assetClass === "lego";
+        return {
+          ...prev,
+          name:              suggestion.value,
+          externalId:        suggestion.externalId ?? prev.externalId,
+          currency:          (suggestion.currency as "EUR" | "USD" | "GBP") ?? prev.currency,
+          currentPriceCents:
+            suggestion.priceCents != null
+              ? (suggestion.priceCents / 100).toFixed(2)
+              : prev.currentPriceCents,
+          buyPrice:
+            prev.buyPrice === "" && suggestion.priceCents != null
+              ? (suggestion.priceCents / 100).toFixed(2)
+              : prev.buyPrice,
+          ...(isLegoClass && { liquidityDays: "45", riskScore: "30" }),
+        };
+      });
       if (suggestion.imageUrl)          setImageUrl(suggestion.imageUrl);
       if (suggestion.imageThumbnailUrl) setImageThumbnailUrl(suggestion.imageThumbnailUrl);
       setErrors((prev) => ({ ...prev, name: undefined, currentPriceCents: undefined }));
     },
-    [],
+    [gamesPrices],
   );
 
   // Live search vs static suggestions per asset class
-  const isSportsCard = SPORTS_CARD_CLASSES.includes(form.assetClass as AssetClass);
-  const isComics     = form.assetClass === "comics";
-  const isLego       = form.assetClass === "lego";
+  const isSportsCard  = SPORTS_CARD_CLASSES.includes(form.assetClass as AssetClass);
+  const isComics      = form.assetClass === "comics";
+  const isLego        = form.assetClass === "lego";
+  const isGamesTech   = form.assetClass === "games_tech";
   const useLiveSearch = ["cs2_skins", "trading_cards"].includes(form.assetClass)
     || isSportsCard
     || isComics
-    || isLego;
+    || isLego
+    || isGamesTech;
 
   const staticSuggestions = useLiveSearch
     ? undefined
@@ -409,7 +487,9 @@ export function AddAssetModal({ onClose }: Props) {
           ? fetchComicsSuggestions
           : isLego
             ? fetchLegoSuggestions
-            : fetchPokemonSuggestions   // default trading_cards → Pokemon
+            : isGamesTech
+              ? fetchGamesTechSuggestions
+              : fetchPokemonSuggestions   // default trading_cards → Pokemon
     : undefined;
 
   function handleSubmit(e: React.FormEvent) {
@@ -445,6 +525,8 @@ export function AddAssetModal({ onClose }: Props) {
       priceSnapshots:    [],
       imageUrl:          imageUrl,
       imageThumbnailUrl: imageThumbnailUrl,
+      loosePriceCents:   gamesPrices?.loose ?? undefined,
+      cibPriceCents:     gamesPrices?.cib   ?? undefined,
       createdAt:         new Date(),
       updatedAt:         new Date(),
       transactions: [
@@ -468,6 +550,7 @@ export function AddAssetModal({ onClose }: Props) {
 
   const isCS2      = form.assetClass === "cs2_skins";
   const isCards    = form.assetClass === "trading_cards";
+  const isGamesModal = form.assetClass === "games_tech";
 
   // For trading_cards, user can toggle between Pokemon and MTG live search
   const [cardSearchMode, setCardSearchMode] = useState<"pokemon" | "mtg">("pokemon");
@@ -571,20 +654,22 @@ export function AddAssetModal({ onClose }: Props) {
           {/* ── Name with autocomplete ── */}
           <Field
             label={
-              isCS2        ? "Название предмета (Steam Market)" :
-              isCards      ? (cardSearchMode === "pokemon" ? "Поиск Pokémon карточки" : "Поиск MTG карточки") :
-              isSportsCard ? "Поиск спортивной карточки" :
-              isComics     ? "Поиск комикса" :
-              isLego       ? "Поиск набора LEGO" :
+              isCS2         ? "Название предмета (Steam Market)" :
+              isCards       ? (cardSearchMode === "pokemon" ? "Поиск Pokémon карточки" : "Поиск MTG карточки") :
+              isSportsCard  ? "Поиск спортивной карточки" :
+              isComics      ? "Поиск комикса" :
+              isLego        ? "Поиск набора LEGO" :
+              isGamesModal  ? "Поиск игры или консоли" :
               "Название актива"
             }
             error={errors.name}
             hint={
-              isCS2        ? "Живой поиск через Steam Market" :
-              isCards      ? "Живой поиск — появятся картинки и цены" :
-              isSportsCard ? "Живой поиск по игроку или карточке" :
-              isComics     ? "Поиск по названию комикса или персонажу" :
-              isLego       ? "Поиск по названию, номеру набора или теме" :
+              isCS2         ? "Живой поиск через Steam Market" :
+              isCards       ? "Живой поиск — появятся картинки и цены" :
+              isSportsCard  ? "Живой поиск по игроку или карточке" :
+              isComics      ? "Поиск по названию комикса или персонажу" :
+              isLego        ? "Поиск по названию, номеру набора или теме" :
+              isGamesModal  ? "PriceCharting + eBay, 25 популярных игр в fallback" :
               staticSuggestions && staticSuggestions.length > 0 ? "Начните вводить — появятся подсказки" :
               undefined
             }
@@ -595,14 +680,15 @@ export function AddAssetModal({ onClose }: Props) {
               onSelect={handleSuggestionSelect}
               suggestions={staticSuggestions}
               fetchSuggestions={activeFetchSuggestions}
-              debounceMs={isCards || isCS2 || isSportsCard || isComics || isLego ? 500 : 300}
+              debounceMs={isCards || isCS2 || isSportsCard || isComics || isLego || isGamesModal ? 500 : 300}
               placeholder={
-                isCS2        ? "AK-47 | Redline (Field-Tested)..." :
+                isCS2         ? "AK-47 | Redline (Field-Tested)..." :
                 isCards && cardSearchMode === "pokemon" ? "Charizard, Pikachu, Lugia..." :
-                isCards      ? "Black Lotus, Lightning Bolt..." :
-                isSportsCard ? "LeBron James RC, Ronaldo 2003, Gretzky..." :
-                isComics     ? "Amazing Fantasy #15, Batman #1..." :
-                isLego       ? "Eiffel Tower, 10307, Icons..." :
+                isCards       ? "Black Lotus, Lightning Bolt..." :
+                isSportsCard  ? "LeBron James RC, Ronaldo 2003, Gretzky..." :
+                isComics      ? "Amazing Fantasy #15, Batman #1..." :
+                isLego        ? "Eiffel Tower, 10307, Icons..." :
+                isGamesModal  ? "Chibi-Robo, PS2 Slim, Pokemon Platinum..." :
                 "Начните вводить название..."
               }
             />
@@ -625,8 +711,40 @@ export function AddAssetModal({ onClose }: Props) {
             />
           </Field>
 
+          {/* ── Games & Tech condition (Loose / CIB / Sealed) ── */}
+          {isGamesModal && (
+            <Field label="Состояние">
+              <div className="flex items-center gap-1 rounded-lg bg-[#080F1C] p-1 border border-[#1C2640]">
+                {([
+                  { value: "fair",      label: "Loose",  price: gamesPrices?.loose },
+                  { value: "near_mint", label: "CIB",    price: gamesPrices?.cib   },
+                  { value: "mint",      label: "Sealed",  price: gamesPrices?.newP  },
+                ] as const).map(({ value, label, price }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => set("condition", value)}
+                    className={clsx(
+                      "fm flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
+                      form.condition === value
+                        ? "bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/25"
+                        : "text-[#4E6080] hover:text-[#B0C4DE]",
+                    )}
+                  >
+                    {label}
+                    {price != null && (
+                      <span className="ml-1 font-mono text-[10px] opacity-70">
+                        ${(price / 100).toFixed(0)}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
+
           {/* ── Condition + Grade (only for cards/collectibles) ── */}
-          {(form.assetClass === "trading_cards" ||
+          {!isGamesModal && (form.assetClass === "trading_cards" ||
             form.assetClass === "anime_cels" ||
             form.assetClass === "lego" ||
             form.assetClass === "comics" ||
@@ -800,4 +918,7 @@ const PLATFORM_SUGGESTIONS: Suggestion[] = [
   { label: "Catawiki",         value: "Catawiki"         },
   { label: "Heritage Auctions",value: "Heritage Auctions"},
   { label: "PWC Auctions",     value: "PWC Auctions"     },
+  { label: "CeX",              value: "CeX"              },
+  { label: "Decluttr",         value: "Decluttr"         },
+  { label: "Facebook Marketplace", value: "Facebook Marketplace" },
 ];

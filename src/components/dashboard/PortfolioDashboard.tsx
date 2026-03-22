@@ -19,21 +19,24 @@ import { usePortfolio } from "@/store/portfolioStore";
 import { useCurrency, CURRENCY_LABELS, type DisplayCurrency } from "@/store/currencyStore";
 import { useUser, getInitials } from "@/store/userStore";
 import { useAuth } from "@/store/authStore";
+import { useLang } from "@/store/langStore";
+import { t } from "@/lib/i18n";
 import { refreshAllPrices, type RefreshResult } from "@/lib/priceRefresh";
 
 type Tab = "overview" | "holdings" | "tax";
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "overview",  label: "Обзор"  },
-  { key: "holdings",  label: "Активы" },
-  { key: "tax",       label: "Налоги" },
-];
-
 export function PortfolioDashboard() {
-  const { assets, updatePrice, resetToDemo, isLoaded } = usePortfolio();
+  const { assets, updatePrice, updateAsset, resetToDemo, isLoaded } = usePortfolio();
   const { displayCurrency, setDisplayCurrency, fmtCents } = useCurrency();
   const { profile } = useUser();
   const { mode, user, logout } = useAuth();
+  const { lang } = useLang();
+
+  const TABS: { key: Tab; label: string }[] = [
+    { key: "overview", label: t(lang, "app_tab_overview") },
+    { key: "holdings", label: t(lang, "app_tab_holdings") },
+    { key: "tax",      label: t(lang, "app_tab_tax") },
+  ];
 
   const [tab, setTab] = useState<Tab>("overview");
   const [taxYear, setTaxYear] = useState(2024);
@@ -59,13 +62,16 @@ export function PortfolioDashboard() {
       if (r.priceCents !== null) {
         updatePrice(r.assetId, r.priceCents);
       }
+      if (r.extraPatch) {
+        updateAsset(r.assetId, r.extraPatch);
+      }
     }
     setRefreshLog(results);
     setRefreshing(false);
   }
 
   const supportedCount = assets.filter(
-    (a) => a.assetClass === "cs2_skins" || a.assetClass === "commodities" || a.assetClass === "trading_cards",
+    (a) => a.assetClass === "cs2_skins" || a.assetClass === "commodities" || a.assetClass === "trading_cards" || a.assetClass === "games_tech",
   ).length;
 
   return (
@@ -139,30 +145,29 @@ export function PortfolioDashboard() {
                 className="fm flex items-center gap-1 rounded-lg border border-[#1C2640] bg-[#0E1830] px-2 py-1.5 text-xs font-medium text-[#4E6080] hover:border-[#F59E0B]/30 hover:text-[#F59E0B] disabled:opacity-50 transition-colors"
               >
                 <span className={clsx("text-base leading-none", refreshing && "animate-spin")}>↻</span>
-                <span className="hidden sm:inline">{refreshing ? "Обновление..." : "Цены"}</span>
+                <span className="hidden sm:inline">{refreshing ? t(lang, "app_refreshing") : t(lang, "app_refresh_prices")}</span>
               </button>
             )}
 
             {/* Demo badge */}
             {mode === "demo" && (
               <span className="fm hidden sm:inline rounded-full border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2 py-1 text-xs font-semibold text-[#F59E0B] uppercase tracking-wider">
-                ДЕМО
+                {t(lang, "app_demo_badge")}
               </span>
             )}
             {mode === "user" && (
               <button
-                onClick={() => { if (confirm("Сбросить портфель к демо-данным? Все изменения будут потеряны.")) resetToDemo(); }}
+                onClick={() => { if (confirm(t(lang, "app_demo_confirm"))) resetToDemo(); }}
                 className="fm hidden sm:flex items-center rounded-lg border border-[#1C2640] bg-[#0E1830] px-2 py-1.5 text-xs font-medium text-[#3E5070] hover:border-[#2A3A50] hover:text-[#B0C4DE] transition-colors"
-                title="Загрузить демо-данные"
               >
-                Демо
+                {t(lang, "app_demo_reset")}
               </button>
             )}
 
             {/* Avatar */}
             <Link
               href="/settings"
-              title={user ? `${user.name} — Настройки` : "Настройки"}
+              title={user ? `${user.name} — ${t(lang, "settings_title")}` : t(lang, "settings_title")}
               className={clsx(
                 "flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-full text-xs font-black text-white transition-opacity hover:opacity-80",
                 user ? `bg-${profile.avatarColor}-500` : "bg-[#1C2640]",
@@ -174,7 +179,7 @@ export function PortfolioDashboard() {
             {/* Logout */}
             <button
               onClick={() => void logout()}
-              title="Выйти"
+              title={t(lang, "settings_logout")}
               className="fm rounded-lg border border-[#1C2640] px-2 py-1.5 text-xs text-[#3E5070] hover:border-[#2A3A50] hover:text-[#B0C4DE] transition-colors"
             >
               ↩
@@ -185,7 +190,7 @@ export function PortfolioDashboard() {
               onClick={() => setShowAddModal(true)}
               className="fm flex items-center gap-1 rounded-lg bg-[#F59E0B] px-2.5 sm:px-4 py-1.5 text-xs font-bold text-[#0B1120] hover:bg-[#FCD34D] uppercase tracking-wider transition-colors"
             >
-              + <span className="hidden sm:inline">Добавить</span>
+              + <span className="hidden sm:inline">{t(lang, "app_add_asset")}</span>
             </button>
           </div>
         </div>
@@ -197,7 +202,7 @@ export function PortfolioDashboard() {
         {refreshLog.length > 0 && (
           <div className="mb-4 rounded-xl border border-[#1C2640] bg-[#0E1830] p-4">
             <p className="fm mb-2 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">
-              Результат обновления цен
+              {t(lang, "app_refresh_result")}
             </p>
             <div className="space-y-1">
               {refreshLog.map((r) => {
@@ -228,15 +233,13 @@ export function PortfolioDashboard() {
         {/* Empty state */}
         {isLoaded && assets.length === 0 && (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#1C2640] py-20 text-center">
-            <p className="fb text-2xl font-bold text-[#3E5070]">Портфель пуст</p>
-            <p className="fm mt-2 text-sm text-[#2A3A50]">
-              Добавьте первый актив, чтобы начать отслеживание
-            </p>
+            <p className="fb text-2xl font-bold text-[#3E5070]">{t(lang, "app_empty_title")}</p>
+            <p className="fm mt-2 text-sm text-[#2A3A50]">{t(lang, "app_empty_sub")}</p>
             <button
               onClick={() => setShowAddModal(true)}
               className="fm mt-6 rounded-lg bg-[#F59E0B] px-6 py-2.5 text-sm font-bold text-[#0B1120] hover:bg-[#FCD34D] uppercase tracking-wider transition-colors"
             >
-              + Добавить актив
+              + {t(lang, "app_add_asset")}
             </button>
           </div>
         )}
@@ -258,15 +261,15 @@ export function PortfolioDashboard() {
 
             <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
               <div className="mb-2 flex items-center justify-between">
-                <h2 className="fm text-xs font-semibold uppercase tracking-wider text-[#4E6080]">Динамика портфеля</h2>
+                <h2 className="fm text-xs font-semibold uppercase tracking-wider text-[#4E6080]">{t(lang, "app_portfolio_value")}</h2>
                 <div className="flex items-center gap-4 fm text-xs text-[#3E5070]">
                   <span className="flex items-center gap-1.5">
                     <span className="inline-block h-0.5 w-5 rounded bg-[#4ADE80]" />
-                    Стоимость
+                    {t(lang, "app_col_value")}
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="inline-block h-0.5 w-5 rounded bg-[#2A3A50]" />
-                    Вложено
+                    {t(lang, "app_col_invested")}
                   </span>
                 </div>
               </div>
@@ -275,12 +278,12 @@ export function PortfolioDashboard() {
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
               <div className="rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
-                <h2 className="fm mb-1 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">Распределение</h2>
+                <h2 className="fm mb-1 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">{t(lang, "app_allocation")}</h2>
                 <AllocationChart byClass={summary.byClass} />
               </div>
 
               <div className="lg:col-span-2 rounded-2xl border border-[#1C2640] bg-[#0E1830] p-6">
-                <h2 className="fm mb-4 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">По классам активов</h2>
+                <h2 className="fm mb-4 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">{t(lang, "app_by_class")}</h2>
                 <div className="space-y-3">
                   {Object.entries(summary.byClass)
                     .sort((a, b) => b[1].totalCurrentValueCents - a[1].totalCurrentValueCents)
@@ -342,13 +345,11 @@ export function PortfolioDashboard() {
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="fb text-xl font-bold text-[#E8F0FF]">Отчёт по налогам IRPF</h2>
-                <p className="fm text-sm text-[#4E6080]">
-                  Испания — прирост капитала (base del ahorro)
-                </p>
+                <h2 className="fb text-xl font-bold text-[#E8F0FF]">{t(lang, "app_tax_title")}</h2>
+                <p className="fm text-sm text-[#4E6080]">{t(lang, "app_tax_sub")}</p>
               </div>
               <div className="flex items-center gap-2 fm text-sm">
-                <label className="text-[#4E6080]">Год:</label>
+                <label className="text-[#4E6080]">{t(lang, "app_tax_year")}</label>
                 <select
                   value={taxYear}
                   onChange={(e) => setTaxYear(Number(e.target.value))}

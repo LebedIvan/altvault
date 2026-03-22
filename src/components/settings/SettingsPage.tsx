@@ -7,16 +7,10 @@ import { useUser, getInitials } from "@/store/userStore";
 import { useAuth } from "@/store/authStore";
 import { useCurrency, CURRENCY_LABELS, type DisplayCurrency } from "@/store/currencyStore";
 import { usePortfolio } from "@/store/portfolioStore";
+import { useLang } from "@/store/langStore";
+import { t, type Lang } from "@/lib/i18n";
 
 type Section = "profile" | "display" | "notifications" | "data" | "about";
-
-const SECTIONS: { key: Section; label: string; icon: string }[] = [
-  { key: "profile",       label: "Приватные данные",    icon: "👤" },
-  { key: "display",       label: "Настройки экрана",    icon: "🎨" },
-  { key: "notifications", label: "Уведомления",          icon: "🔔" },
-  { key: "data",          label: "Данные и экспорт",    icon: "💾" },
-  { key: "about",         label: "О приложении",         icon: "ℹ️"  },
-];
 
 const AVATAR_COLORS: { key: string; bg: string; ring: string }[] = [
   { key: "sky",    bg: "bg-sky-500",     ring: "ring-sky-400"    },
@@ -38,6 +32,7 @@ function avatarRing(colorKey: string) {
 
 function ProfileSection() {
   const { profile, updateProfile } = useUser();
+  const { lang } = useLang();
   const [name, setName]   = useState(profile.name);
   const [email, setEmail] = useState(profile.email);
   const [saved, setSaved] = useState(false);
@@ -51,8 +46,8 @@ function ProfileSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">Приватные данные</h2>
-        <p className="fm text-sm text-[#4E6080]">Эта информация хранится только на вашем устройстве</p>
+        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">{t(lang, "settings_profile_title")}</h2>
+        <p className="fm text-sm text-[#4E6080]">{t(lang, "settings_profile_sub")}</p>
       </div>
 
       {/* Avatar picker */}
@@ -65,7 +60,7 @@ function ProfileSection() {
           {getInitials(profile.name)}
         </div>
         <div>
-          <p className="fm text-xs text-[#4E6080] mb-2">Цвет аватара</p>
+          <p className="fm text-xs text-[#4E6080] mb-2">{t(lang, "settings_avatar_color")}</p>
           <div className="flex gap-2">
             {AVATAR_COLORS.map((c) => (
               <button
@@ -87,7 +82,7 @@ function ProfileSection() {
       {/* Fields */}
       <div className="space-y-4 max-w-md">
         <div>
-          <label className="fm block text-sm text-[#4E6080] mb-1.5">Email</label>
+          <label className="fm block text-sm text-[#4E6080] mb-1.5">{t(lang, "settings_email_label")}</label>
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -96,11 +91,11 @@ function ProfileSection() {
           />
         </div>
         <div>
-          <label className="fm block text-sm text-[#4E6080] mb-1.5">Полное имя</label>
+          <label className="fm block text-sm text-[#4E6080] mb-1.5">{t(lang, "settings_name_label")}</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Иван Иванов"
+            placeholder="Ivan Ivanov"
             className="w-full rounded-lg border border-[#1C2640] bg-[#080F1C] px-4 py-2.5 text-sm text-[#E8F0FF] placeholder:text-[#2A3A50] focus:border-[#F59E0B]/50 focus:outline-none"
           />
         </div>
@@ -111,27 +106,58 @@ function ProfileSection() {
           onClick={handleSave}
           className="rounded-lg bg-[#F59E0B] px-5 py-2 text-sm font-semibold text-[#0B1120] hover:bg-[#FCD34D] transition-colors"
         >
-          Сохранить
+          {t(lang, "settings_save")}
         </button>
-        {saved && <span className="fm text-sm text-[#4ADE80]">✓ Сохранено</span>}
+        {saved && <span className="fm text-sm text-[#4ADE80]">{t(lang, "settings_saved")}</span>}
       </div>
     </div>
   );
 }
 
+const LANGS: { code: Lang; label: string; flag: string }[] = [
+  { code: "en", label: "English",  flag: "🇬🇧" },
+  { code: "ru", label: "Русский",  flag: "🇷🇺" },
+  { code: "es", label: "Español",  flag: "🇪🇸" },
+];
+
 function DisplaySection() {
   const { displayCurrency, setDisplayCurrency } = useCurrency();
+  const { lang, setLang } = useLang();
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">Настройки экрана</h2>
-        <p className="fm text-sm text-[#4E6080]">Настройте отображение данных</p>
+        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">{t(lang, "settings_display_title")}</h2>
+        <p className="fm text-sm text-[#4E6080]">{t(lang, "settings_display_sub")}</p>
       </div>
 
-      <div className="max-w-md space-y-5">
+      <div className="max-w-md space-y-6">
+        {/* Language picker */}
         <div>
-          <label className="fm block text-sm text-[#4E6080] mb-2">Валюта отображения</label>
+          <label className="fm block text-sm text-[#4E6080] mb-2">{t(lang, "settings_language")}</label>
+          <div className="grid grid-cols-3 gap-2">
+            {LANGS.map(({ code, label, flag }) => (
+              <button
+                key={code}
+                onClick={() => setLang(code)}
+                className={clsx(
+                  "rounded-lg border px-4 py-3 text-sm font-medium text-left transition-colors flex items-center gap-2",
+                  lang === code
+                    ? "border-[#F59E0B]/50 bg-[#F59E0B]/10 text-[#F59E0B]"
+                    : "border-[#1C2640] bg-[#080F1C] text-[#4E6080] hover:border-[#3E5070] hover:text-[#B0C4DE]",
+                )}
+              >
+                <span>{flag}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="fm text-xs text-[#4E6080] mt-2">{t(lang, "settings_lang_note")}</p>
+        </div>
+
+        {/* Currency picker */}
+        <div>
+          <label className="fm block text-sm text-[#4E6080] mb-2">{t(lang, "settings_currency_label")}</label>
           <div className="grid grid-cols-2 gap-2">
             {(Object.entries(CURRENCY_LABELS) as [DisplayCurrency, string][]).map(([key, label]) => (
               <button
@@ -151,10 +177,7 @@ function DisplaySection() {
         </div>
 
         <div className="rounded-xl border border-[#1C2640] bg-[#080F1C] p-4">
-          <p className="fm text-xs text-[#4E6080]">
-            Курсы валют обновляются автоматически раз в час через open.er-api.com.
-            При отсутствии сети используются последние сохранённые значения.
-          </p>
+          <p className="fm text-xs text-[#4E6080]">{t(lang, "settings_currency_note")}</p>
         </div>
       </div>
     </div>
@@ -184,29 +207,30 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 function NotificationsSection() {
   const { profile, updateNotifications } = useUser();
+  const { lang } = useLang();
   const n = profile.notifications;
 
   const items = [
-    { key: "priceAlerts"  as const, label: "Ценовые уведомления",  desc: "Оповещать при значительном изменении цены актива" },
-    { key: "weeklyReport" as const, label: "Еженедельный отчёт",    desc: "Краткий обзор портфеля каждую неделю" },
-    { key: "assetUpdates" as const, label: "Обновления активов",    desc: "Уведомления при обновлении данных рынка" },
+    { key: "priceAlerts"  as const, labelKey: "settings_notif_title_prices" as const, descKey: "settings_notif_desc_prices" as const },
+    { key: "weeklyReport" as const, labelKey: "settings_notif_title_weekly" as const, descKey: "settings_notif_desc_weekly" as const },
+    { key: "assetUpdates" as const, labelKey: "settings_notif_title_updates" as const, descKey: "settings_notif_desc_updates" as const },
   ];
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">Уведомления</h2>
-        <p className="fm text-sm text-[#4E6080]">Настройки сохраняются на вашем устройстве</p>
+        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">{t(lang, "settings_notif_title_section")}</h2>
+        <p className="fm text-sm text-[#4E6080]">{t(lang, "settings_notif_sub")}</p>
       </div>
       <div className="max-w-lg space-y-3">
-        {items.map(({ key, label, desc }) => (
+        {items.map(({ key, labelKey, descKey }) => (
           <div
             key={key}
             className="flex items-center justify-between rounded-xl border border-[#1C2640] bg-[#0E1830] px-5 py-4"
           >
             <div>
-              <p className="text-sm font-medium text-[#E8F0FF]">{label}</p>
-              <p className="fm text-xs text-[#4E6080] mt-0.5">{desc}</p>
+              <p className="text-sm font-medium text-[#E8F0FF]">{t(lang, labelKey)}</p>
+              <p className="fm text-xs text-[#4E6080] mt-0.5">{t(lang, descKey)}</p>
             </div>
             <Toggle checked={n[key]} onChange={(v) => updateNotifications({ [key]: v })} />
           </div>
@@ -219,6 +243,7 @@ function NotificationsSection() {
 function DataSection() {
   const { assets } = usePortfolio();
   const { storageKey } = useAuth();
+  const { lang } = useLang();
   const [exported, setExported] = useState(false);
 
   function handleExport() {
@@ -235,7 +260,7 @@ function DataSection() {
   }
 
   function handleClearPortfolio() {
-    if (confirm("Очистить портфель? Все активы будут удалены. Это необратимо.")) {
+    if (confirm(t(lang, "settings_clear_confirm"))) {
       localStorage.removeItem(storageKey);
       window.location.href = "/app";
     }
@@ -244,50 +269,46 @@ function DataSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">Данные и экспорт</h2>
-        <p className="fm text-sm text-[#4E6080]">Управляйте данными портфеля</p>
+        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">{t(lang, "settings_data_title")}</h2>
+        <p className="fm text-sm text-[#4E6080]">{t(lang, "settings_data_sub")}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-3 max-w-lg">
         {[
-          { label: "Активов в портфеле", value: assets.length },
-          { label: "Транзакций",          value: assets.reduce((s, a) => s + a.transactions.length, 0) },
-          { label: "Классов активов",     value: new Set(assets.map((a) => a.assetClass)).size },
-        ].map(({ label, value }) => (
-          <div key={label} className="rounded-xl border border-[#1C2640] bg-[#0E1830] p-4 text-center">
+          { labelKey: "settings_assets_count" as const, value: assets.length },
+          { labelKey: "settings_tx_count" as const,     value: assets.reduce((s, a) => s + a.transactions.length, 0) },
+          { labelKey: "settings_classes_count" as const,value: new Set(assets.map((a) => a.assetClass)).size },
+        ].map(({ labelKey, value }) => (
+          <div key={labelKey} className="rounded-xl border border-[#1C2640] bg-[#0E1830] p-4 text-center">
             <p className="fb text-2xl font-black text-[#E8F0FF]">{value}</p>
-            <p className="fm text-xs text-[#4E6080] mt-1">{label}</p>
+            <p className="fm text-xs text-[#4E6080] mt-1">{t(lang, labelKey)}</p>
           </div>
         ))}
       </div>
 
       <div className="max-w-lg space-y-3">
         <div className="rounded-xl border border-[#1C2640] bg-[#0E1830] p-5">
-          <p className="fb text-sm font-medium text-[#E8F0FF] mb-1">Экспорт портфеля</p>
-          <p className="fm text-xs text-[#4E6080] mb-4">
-            Скачайте все данные портфеля в формате JSON. Файл содержит все активы, транзакции и снепшоты цен.
-          </p>
+          <p className="fb text-sm font-medium text-[#E8F0FF] mb-1">{t(lang, "settings_export_title")}</p>
+          <p className="fm text-xs text-[#4E6080] mb-4">{t(lang, "settings_export_desc")}</p>
           <div className="flex items-center gap-3">
             <button
               onClick={handleExport}
               className="rounded-lg border border-[#1C2640] bg-[#080F1C] px-4 py-2 text-sm font-medium text-[#B0C4DE] hover:border-[#3E5070] hover:text-[#E8F0FF] transition-colors"
             >
-              ↓ Скачать JSON
+              {t(lang, "settings_export_btn")}
             </button>
-            {exported && <span className="fm text-sm text-[#4ADE80]">✓ Загрузка началась</span>}
+            {exported && <span className="fm text-sm text-[#4ADE80]">{t(lang, "settings_export_done")}</span>}
           </div>
         </div>
 
         <div className="rounded-xl border border-[#F87171]/25 bg-[#F87171]/10 p-5">
-          <p className="fb text-sm font-medium text-[#F87171] mb-1">Очистить портфель</p>
-          <p className="fm text-xs text-[#4E6080] mb-4">
-            Удалить все активы и начать с чистого листа. Это действие необратимо.
-          </p>
+          <p className="fb text-sm font-medium text-[#F87171] mb-1">{t(lang, "settings_clear_title")}</p>
+          <p className="fm text-xs text-[#4E6080] mb-4">{t(lang, "settings_clear_desc")}</p>
           <button
             onClick={handleClearPortfolio}
             className="rounded-lg border border-[#F87171]/30 bg-[#F87171]/15 px-4 py-2 text-sm font-medium text-[#F87171] hover:bg-[#F87171]/25 transition-colors"
           >
-            Очистить портфель
+            {t(lang, "settings_clear_btn")}
           </button>
         </div>
       </div>
@@ -296,11 +317,12 @@ function DataSection() {
 }
 
 function AboutSection() {
+  const { lang } = useLang();
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">О приложении</h2>
-        <p className="fm text-sm text-[#4E6080]">Информация о Vaulty</p>
+        <h2 className="fb text-lg font-semibold text-[#E8F0FF] mb-1">{t(lang, "settings_about_title")}</h2>
+        <p className="fm text-sm text-[#4E6080]">{t(lang, "settings_about_sub")}</p>
       </div>
       <div className="max-w-lg space-y-4">
         <div className="flex items-center gap-4">
@@ -312,14 +334,14 @@ function AboutSection() {
         </div>
         <div className="rounded-xl border border-[#1C2640] bg-[#0E1830] divide-y divide-[#162035]">
           {[
-            { label: "Версия",        value: "1.0.0" },
-            { label: "Фреймворк",     value: "Next.js 14 + React 18" },
-            { label: "Хранилище",     value: "localStorage + snapshots.json" },
-            { label: "Источники цен", value: "Skinport, Yahoo Finance, Scryfall, TCGdex" },
-            { label: "Курсы валют",   value: "open.er-api.com" },
-          ].map(({ label, value }) => (
-            <div key={label} className="flex items-center justify-between px-5 py-3">
-              <span className="fm text-sm text-[#4E6080]">{label}</span>
+            { labelKey: "settings_version" as const,          value: "1.0.0" },
+            { labelKey: "settings_about_framework" as const,  value: "Next.js 14 + React 18" },
+            { labelKey: "settings_about_storage" as const,    value: "localStorage + snapshots.json" },
+            { labelKey: "settings_about_prices" as const,     value: "Skinport, Yahoo Finance, Scryfall, TCGdex" },
+            { labelKey: "settings_about_rates" as const,      value: "open.er-api.com" },
+          ].map(({ labelKey, value }) => (
+            <div key={labelKey} className="flex items-center justify-between px-5 py-3">
+              <span className="fm text-sm text-[#4E6080]">{t(lang, labelKey)}</span>
               <span className="fm text-sm text-[#E8F0FF] font-medium">{value}</span>
             </div>
           ))}
@@ -335,6 +357,15 @@ export function SettingsPage() {
   const [section, setSection] = useState<Section>("profile");
   const { profile } = useUser();
   const { mode, user, logout } = useAuth();
+  const { lang } = useLang();
+
+  const sectionItems: { key: Section; label: string; icon: string }[] = [
+    { key: "profile",       label: t(lang, "settings_profile"),       icon: "👤" },
+    { key: "display",       label: t(lang, "settings_display"),       icon: "🎨" },
+    { key: "notifications", label: t(lang, "settings_notifications"), icon: "🔔" },
+    { key: "data",          label: t(lang, "settings_data"),          icon: "💾" },
+    { key: "about",         label: t(lang, "settings_about"),         icon: "ℹ️"  },
+  ];
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-[#E8F0FF]">
@@ -346,10 +377,10 @@ export function SettingsPage() {
             <span className="fb text-sm font-semibold tracking-tight text-[#E8F0FF]">Vaulty</span>
           </Link>
           <span className="text-[#1C2640]">/</span>
-          <span className="fm text-sm text-[#4E6080]">Настройки</span>
+          <span className="fm text-sm text-[#4E6080]">{t(lang, "settings_title")}</span>
           <div className="ml-auto">
             <Link href="/" className="text-sm text-[#4E6080] hover:text-[#F59E0B] transition-colors">
-              ← Назад в портфель
+              {t(lang, "settings_back")}
             </Link>
           </div>
         </div>
@@ -363,7 +394,7 @@ export function SettingsPage() {
             <div className="mb-4 rounded-xl border border-[#1C2640] bg-[#0E1830] px-4 py-3">
               {mode === "demo" && (
                 <div className="mb-2 rounded-md bg-[#F59E0B]/15 border border-[#F59E0B]/30 px-2.5 py-1 text-center text-xs font-semibold text-[#F59E0B]">
-                  ДЕМО-РЕЖИМ
+                  {t(lang, "settings_demo_mode")}
                 </div>
               )}
               <div className="flex items-center gap-3">
@@ -375,10 +406,10 @@ export function SettingsPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-[#E8F0FF]">
-                    {user?.name ?? profile.name ?? "Без имени"}
+                    {user?.name ?? profile.name ?? t(lang, "settings_no_name")}
                   </p>
                   <p className="fm truncate text-xs text-[#4E6080]">
-                    {user?.email ?? profile.email ?? (mode === "demo" ? "Гостевой режим" : "Email не указан")}
+                    {user?.email ?? profile.email ?? (mode === "demo" ? t(lang, "settings_guest_mode") : t(lang, "settings_no_email"))}
                   </p>
                 </div>
               </div>
@@ -386,12 +417,12 @@ export function SettingsPage() {
                 onClick={() => void logout()}
                 className="mt-3 w-full rounded-lg border border-[#1C2640] py-1.5 text-xs font-medium text-[#4E6080] hover:border-[#3E5070] hover:text-[#B0C4DE] transition-colors"
               >
-                Выйти
+                {t(lang, "settings_logout")}
               </button>
             </div>
 
             <nav className="space-y-1">
-              {SECTIONS.map(({ key, label, icon }) => (
+              {sectionItems.map(({ key, label, icon }) => (
                 <button
                   key={key}
                   onClick={() => setSection(key)}

@@ -14,6 +14,7 @@ export const DEFAULT_PLATFORM_FEE_RATES: Record<string, number> = {
   anime_cels:               0.12,
   commodities:              0.015,
   sports_betting:           0.00,   // no platform fee (spread-based)
+  games_tech:               0.10,   // eBay ~10% for games/consoles
 } as const;
 
 export const DAYS_PER_YEAR = 365;

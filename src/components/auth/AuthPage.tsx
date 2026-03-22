@@ -112,6 +112,14 @@ export function AuthPage({ mode }: Props) {
             />
           </div>
 
+          {mode === "login" && (
+            <div className="text-right -mt-2">
+              <Link href="/forgot-password" className="fm text-xs text-[#4E6080] hover:text-[#F59E0B] transition-colors">
+                Forgot password?
+              </Link>
+            </div>
+          )}
+
           {error && (
             <p className="rounded-lg border border-[#F87171]/20 bg-[#F87171]/10 px-4 py-2.5 fm text-xs text-[#F87171]">
               {error}
@@ -136,10 +144,24 @@ export function AuthPage({ mode }: Props) {
           <div className="h-px flex-1 bg-[#1C2640]" />
         </div>
 
+        {/* Google OAuth */}
+        <a
+          href="/api/auth/google"
+          className="fm flex w-full items-center justify-center gap-3 rounded-lg border border-[#1C2640] bg-[#080F1C] py-2.5 text-sm font-medium text-[#E8F0FF] transition-colors hover:border-[#3E5070] hover:bg-[#0E1830]"
+        >
+          <svg width="18" height="18" viewBox="0 0 48 48" fill="none">
+            <path d="M47.5 24.5c0-1.6-.1-3.2-.4-4.7H24v8.9h13.2c-.6 3-2.3 5.5-4.9 7.2v6h7.9c4.6-4.3 7.3-10.6 7.3-17.4z" fill="#4285F4"/>
+            <path d="M24 48c6.5 0 12-2.1 16-5.8l-7.9-6c-2.2 1.5-5 2.3-8.1 2.3-6.2 0-11.5-4.2-13.4-9.9H2.5v6.2C6.5 42.6 14.7 48 24 48z" fill="#34A853"/>
+            <path d="M10.6 28.6A14.7 14.7 0 0 1 10.6 19.4v-6.2H2.5a23.9 23.9 0 0 0 0 21.6l8.1-6.2z" fill="#FBBC04"/>
+            <path d="M24 9.5c3.5 0 6.6 1.2 9.1 3.5l6.8-6.8C35.9 2.4 30.4 0 24 0 14.7 0 6.5 5.4 2.5 13.2l8.1 6.2C12.5 13.7 17.8 9.5 24 9.5z" fill="#EA4335"/>
+          </svg>
+          {mode === "login" ? "Войти через Google" : "Зарегистрироваться через Google"}
+        </a>
+
         {/* Demo button */}
         <button
           onClick={handleDemo}
-          className="fm w-full rounded-lg border border-[#1C2640] bg-[#080F1C] py-2.5 text-sm font-medium text-[#4E6080] transition-colors hover:border-[#3E5070] hover:text-[#E8F0FF]"
+          className="fm mt-3 w-full rounded-lg border border-[#1C2640] bg-[#080F1C] py-2.5 text-sm font-medium text-[#4E6080] transition-colors hover:border-[#3E5070] hover:text-[#E8F0FF]"
         >
           Попробовать демо
         </button>

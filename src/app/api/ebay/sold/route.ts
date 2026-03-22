@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 /**
  * eBay sold price data — fetches completed/sold listings.
  *
@@ -8,6 +9,66 @@
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db, ebayCache } from "@/lib/db";
+
+// ─── Two-level cache: L1 in-memory (process lifetime), L2 DB (persists restarts) ──
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+const memCache = new Map<string, { data: EbaySoldData; expiresAt: number }>();
+
+async function getCached(key: string): Promise<EbaySoldData | null> {
+  // L1: memory
+  const mem = memCache.get(key);
+  if (mem) {
+    if (Date.now() <= mem.expiresAt) return mem.data;
+    memCache.delete(key);
+  }
+
+  // L2: DB
+  try {
+    const rows = await db.select().from(ebayCache).where(eq(ebayCache.query, key)).limit(1);
+    const row = rows[0];
+    if (row && new Date(row.expiresAt) > new Date()) {
+      const data = row.data as unknown as EbaySoldData;
+      memCache.set(key, { data, expiresAt: new Date(row.expiresAt).getTime() });
+      return data;
+    }
+  } catch {
+    // DB unavailable — fall through
+  }
+
+  return null;
+}
+
+async function setCached(key: string, data: EbaySoldData): Promise<void> {
+  const expiresAt = new Date(Date.now() + CACHE_TTL_MS);
+
+  // L1: memory
+  memCache.set(key, { data, expiresAt: expiresAt.getTime() });
+
+  // L2: DB
+  try {
+    await db
+      .insert(ebayCache)
+      .values({
+        query:     key,
+        data:      data as unknown as Record<string, unknown>,
+        expiresAt: expiresAt.toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: ebayCache.query,
+        set: {
+          data:      data as unknown as Record<string, unknown>,
+          expiresAt: expiresAt.toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+  } catch {
+    // DB write failed — in-memory cache still protects within this process
+  }
+}
 
 const QuerySchema = z.object({
   q:        z.string().min(1).max(200),
@@ -66,6 +127,9 @@ async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
   const appId = process.env.EBAY_APP_ID;
   if (!appId) return null;
 
+  const cached = await getCached(q);
+  if (cached) return cached;
+
   const params = new URLSearchParams({
     "OPERATION-NAME":                "findCompletedItems",
     "SERVICE-VERSION":               "1.0.0",
@@ -82,16 +146,37 @@ async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
 
   try {
     const res = await abortFetch(url);
-    if (!res.ok) return null;
-    const data = (await res.json()) as EbayFindingResponse;
+    const text = await res.text();
+    if (!res.ok) {
+      console.error("[ebay/sold] HTTP error", res.status, text.slice(0, 200));
+      return null;
+    }
 
-    const items =
-      data.findCompletedItemsResponse?.[0]?.searchResult?.[0]?.item ?? [];
+    let data: EbayFindingResponse;
+    try {
+      data = JSON.parse(text) as EbayFindingResponse;
+    } catch {
+      console.error("[ebay/sold] JSON parse error:", text.slice(0, 200));
+      return null;
+    }
+
+    const root = data.findCompletedItemsResponse?.[0];
+    const rootAny = root as unknown as Record<string, string[]>;
+    const ack = rootAny?.ack?.[0];
+    if (ack && ack !== "Success" && ack !== "Warning") {
+      console.error("[ebay/sold] eBay API error:", ack);
+      return null;
+    }
+
+    const items = root?.searchResult?.[0]?.item ?? [];
     const total = parseInt(
-      data.findCompletedItemsResponse?.[0]?.paginationOutput?.[0]?.totalEntries?.[0] ?? "0",
+      root?.paginationOutput?.[0]?.totalEntries?.[0] ?? "0",
     );
 
-    if (items.length === 0) return null;
+    if (items.length === 0) {
+      console.warn("[ebay/sold] 0 results for query:", q);
+      return null;
+    }
 
     const sales: SoldItem[] = items.map((item) => {
       const priceObj = item.sellingStatus?.[0]?.currentPrice?.[0];
@@ -107,14 +192,9 @@ async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
     prices.sort((a, b) => a - b);
 
     const avg = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
+    const median = prices.length > 0 ? prices[Math.floor(prices.length / 2)] : null;
 
-    // Trending = median price
-    const median =
-      prices.length > 0
-        ? prices[Math.floor(prices.length / 2)]
-        : null;
-
-    return {
+    const result: EbaySoldData = {
       totalSales:    total,
       trendingPrice: median ?? null,
       lowestPrice:   prices[0] ?? null,
@@ -124,6 +204,8 @@ async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
       recentSales:   sales.slice(0, 20),
       source:        "ebay",
     };
+    await setCached(q, result);
+    return result;
   } catch {
     return null;
   }
@@ -131,30 +213,23 @@ async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
 
 // ─── Simulated fallback ───────────────────────────────────────────────────────
 
-/** Generate deterministic pseudo-random number from seed */
 function seededRandom(seed: number): number {
   const x = Math.sin(seed + 1) * 10000;
   return x - Math.floor(x);
 }
 
 function generateSimulated(q: string, currency: string): EbaySoldData {
-  // Create a stable seed from the query string
   const seed = q.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-
-  // Base price derived from query length and characters (completely fake but stable)
   const basePrice = 20 + (seed % 200);
   const variance = basePrice * 0.4;
-
   const totalSales = 30 + (seed % 300);
   const numSamples = 20;
-
   const recentSales: SoldItem[] = [];
   const now = Date.now();
 
   for (let i = 0; i < numSamples; i++) {
     const r1 = seededRandom(seed + i * 3);
     const r2 = seededRandom(seed + i * 3 + 1);
-    // Box-Muller for normally-distributed price
     const gauss = Math.sqrt(-2 * Math.log(r1 + 0.0001)) * Math.cos(2 * Math.PI * r2);
     const price = Math.max(1, Math.round((basePrice + gauss * variance) * 100) / 100);
     const daysAgo = Math.floor(seededRandom(seed + i * 7) * 90);
@@ -194,13 +269,8 @@ export async function GET(request: Request) {
 
   const { q, currency } = parsed.data;
 
-  // Try real eBay data first
   const ebayData = await fetchEbaySold(q);
-  if (ebayData) {
-    return NextResponse.json(ebayData);
-  }
+  if (ebayData) return NextResponse.json(ebayData);
 
-  // Fall back to simulated
-  const simulated = generateSimulated(q, currency);
-  return NextResponse.json(simulated);
+  return NextResponse.json(generateSimulated(q, currency));
 }

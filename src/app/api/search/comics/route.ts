@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 /**
  * Comics search — uses ComicVine API if COMICVINE_API_KEY is set,
  * supplements with local comics-db, and falls back to a curated static list.
@@ -94,7 +95,7 @@ async function searchComicVine(q: string): Promise<ComicSuggestion[] | null> {
 async function searchLocalDb(q: string): Promise<ComicSuggestion[]> {
   try {
     const { search: dbSearch } = await import("@/lib/comicsDb");
-    const records = dbSearch(q, 20);
+    const records = await dbSearch(q, 20);
     return records.map((r) => {
       const yearPart = r.coverDate ? ` (${r.coverDate.slice(0, 4)})` : "";
       const fullName = `${r.volumeName} #${r.issueNumber}${yearPart}${r.keyIssueReason ? ` — ${r.keyIssueReason}` : ""}`;

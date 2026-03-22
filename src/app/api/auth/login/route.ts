@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { findUserByEmail, verifyPassword, signToken, COOKIE_NAME, DEMO_COOKIE } from "@/lib/authServer";
 import { sendVerificationEmail } from "@/lib/mailer";
@@ -9,7 +10,7 @@ export async function POST(req: NextRequest) {
     if (!email || !password)
       return NextResponse.json({ error: "Введите email и пароль" }, { status: 400 });
 
-    const user = findUserByEmail(email);
+    const user = await findUserByEmail(email);
     if (!user || !verifyPassword(password, user.passwordHash))
       return NextResponse.json({ error: "Неверный email или пароль" }, { status: 401 });
 

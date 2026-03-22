@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -16,7 +17,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     }
 
-    const stripe = new Stripe(stripeKey);
+    const stripe = new Stripe(stripeKey, {
+      httpClient: Stripe.createFetchHttpClient(),
+    });
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
 
     const session = await stripe.checkout.sessions.create({
@@ -31,20 +34,19 @@ export async function POST(req: NextRequest) {
               name: "Vaulty Premium — 1 Year",
               description:
                 "Early-bird premium subscription: AI analyst, advanced analytics, price history, and priority support.",
-              images: [],
             },
           },
           quantity: 1,
         },
       ],
       metadata: { email },
-      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&plan=premium`,
-      cancel_url: `${baseUrl}/?canceled=1`,
+      success_url: `${baseUrl}/success?plan=premium`,
+      cancel_url: `${baseUrl}/landing`,
     });
 
     return NextResponse.json({ url: session.url });
   } catch (err) {
-    console.error("[stripe/checkout]", err);
+    console.error("[stripe/checkout]", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });
   }
 }

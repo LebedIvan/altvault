@@ -17,6 +17,7 @@ export const AssetClassSchema = z.enum([
   "anime_cels",
   "commodities",
   "sports_betting",
+  "games_tech",
 ]);
 
 export type AssetClass = z.infer<typeof AssetClassSchema>;
@@ -93,6 +94,12 @@ export const AssetSchema = z.object({
   imageThumbnailUrl: z.string().url().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
+  // Games & Tech specific (optional, only populated for games_tech)
+  cexSellPriceCents:  z.number().int().nonnegative().optional(),
+  cexBuyPriceCents:   z.number().int().nonnegative().optional(),
+  loosePriceCents:    z.number().int().nonnegative().optional(),
+  cibPriceCents:      z.number().int().nonnegative().optional(),
+  ebayMedianCents:    z.number().int().nonnegative().optional(),
 });
 
 export type Asset = z.infer<typeof AssetSchema>;

@@ -1,7 +1,6 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 export type AuthMode = "loading" | "user" | "demo" | "none";
 
@@ -24,7 +23,6 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<AuthMode>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
-  const router = useRouter();
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -38,10 +36,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" });
-    setMode("none");
-    setUser(null);
-    router.push("/login");
-  }, [router]);
+    window.location.href = "/login";
+  }, []);
 
   const storageKey = user
     ? `vaulty_portfolio_${user.id}`

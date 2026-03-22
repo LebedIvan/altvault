@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { recordSnapshots, getStats, type SnapshotInput } from "@/lib/snapshotDb";
 

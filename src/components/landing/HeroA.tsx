@@ -54,7 +54,7 @@ export function HeroA({ lang, onTrack }: Props) {
     <section className="relative overflow-hidden px-6 py-20 md:py-28">
       {/* Background grid */}
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#1C264015_1px,transparent_1px),linear-gradient(to_bottom,#1C264015_1px,transparent_1px)] bg-[size:40px_40px]" />
-      <div className="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#F59E0B]/5 blur-[120px] rounded-full" />
+      <div className="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#F59E0B]/5 blur-[120px] rounded-full hidden md:block" />
 
       <div className="relative mx-auto max-w-5xl">
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:items-center">

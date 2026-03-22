@@ -288,7 +288,7 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
 
     const [itemRes, historyRes] = await Promise.allSettled([
       fetch(
-        `https://api.skinport.com/v1/items?app_id=730&currency=EUR&tradable=0&market_hash_name=${encodeURIComponent(itemName)}`,
+        `https://api.skinport.com/v1/items?app_id=730&currency=EUR&market_hash_name=${encodeURIComponent(itemName)}`,
         { headers: { "User-Agent": "Vaulty/1.0", Accept: "application/json" }, next: { revalidate: 3600 } },
       ),
       fetch(
@@ -311,7 +311,7 @@ async function fetchSkinportSource(itemName: string): Promise<PriceSource> {
       const items = (await itemRes.value.json()) as {
         market_hash_name: string; suggested_price: number | null; min_price: number | null;
       }[];
-      const item = items[0] ?? items.find((i) => i.market_hash_name === itemName);
+      const item = items.find((i) => i.market_hash_name === itemName);
       if (item) {
         priceCents = item.suggested_price ? Math.round(item.suggested_price * 100) : null;
         minCents   = item.min_price       ? Math.round(item.min_price       * 100) : null;

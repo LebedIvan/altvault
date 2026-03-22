@@ -82,9 +82,10 @@ async function buildEbaySource(query: string): Promise<PriceSource> {
       meta: { url: searchUrl, note: query } };
   }
   const currency = (data.currency === "EUR" ? "EUR" : data.currency === "GBP" ? "GBP" : "USD") as "EUR" | "USD" | "GBP";
+  const label = data.source === "ebay_browse" ? "eBay (active)" : "eBay (sold)";
   return {
     key:   "ebay",
-    label: "eBay (sold)",
+    label,
     priceCents: data.trendingPrice ? Math.round(data.trendingPrice * 100) : null,
     currency,
     status: "ok",

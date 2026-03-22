@@ -22,7 +22,8 @@ export interface EbaySoldData {
   averagePrice: number | null;
   currency: string;
   recentSales: SoldItem[];
-  source: "ebay" | "simulated";
+  /** "ebay" = sold listings (Finding API), "ebay_browse" = active listings (Browse API), "simulated" = fake */
+  source: "ebay" | "ebay_browse" | "simulated";
 }
 
 // ─── Two-level cache: L1 in-memory, L2 DB ────────────────────────────────────
@@ -95,6 +96,84 @@ export async function setCachedEbay(key: string, data: EbaySoldData): Promise<vo
   } catch { /* write failed — in-memory still protects */ }
 }
 
+// ─── eBay Browse API (OAuth 2.0) ─────────────────────────────────────────────
+// Modern replacement for Finding API. Requires EBAY_APP_ID + EBAY_CERT_ID.
+// Shows active listings (not sold), but gives real current market prices.
+
+let browseToken: { token: string; expiresAt: number } | null = null;
+
+async function getEbayOAuthToken(): Promise<string | null> {
+  const appId  = process.env.EBAY_APP_ID;
+  const certId = process.env.EBAY_CERT_ID;
+  if (!appId || !certId) return null;
+
+  if (browseToken && Date.now() < browseToken.expiresAt - 60_000) return browseToken.token;
+
+  try {
+    const creds = Buffer.from(`${appId}:${certId}`).toString("base64");
+    const res = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+      method: "POST",
+      headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope",
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { access_token: string; expires_in: number };
+    browseToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+    return browseToken.token;
+  } catch { return null; }
+}
+
+interface BrowseItem {
+  title: string;
+  price: { value: string; currency: string };
+  itemCreationDate?: string;
+}
+
+async function fetchEbayBrowse(q: string): Promise<EbaySoldData | null> {
+  const token = await getEbayOAuthToken();
+  if (!token) return null;
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://api.ebay.com/buy/browse/v1/item_summary/search?q=${encodeURIComponent(q)}&limit=50&filter=buyingOptions%3A%7BFIXED_PRICE%7D`,
+        { headers: { Authorization: `Bearer ${token}`, "X-EBAY-C-MARKETPLACE-ID": "EBAY_US" }, signal: controller.signal },
+      );
+    } finally { clearTimeout(timer); }
+
+    if (!res.ok) return null;
+    const data = await res.json() as { itemSummaries?: BrowseItem[]; total?: number };
+
+    const items = data.itemSummaries ?? [];
+    if (items.length === 0) return null;
+
+    const sales: SoldItem[] = items.map((item) => ({
+      title:    item.title,
+      price:    parseFloat(item.price.value),
+      currency: item.price.currency,
+      date:     item.itemCreationDate ?? new Date().toISOString(),
+    }));
+
+    const prices = sales.map((s) => s.price).filter((p) => p > 0).sort((a, b) => a - b);
+    const avg    = prices.reduce((a, b) => a + b, 0) / prices.length;
+    const median = prices[Math.floor(prices.length / 2)] ?? null;
+
+    return {
+      totalSales:    data.total ?? items.length,
+      trendingPrice: median,
+      lowestPrice:   prices[0]                   ?? null,
+      highestPrice:  prices[prices.length - 1]   ?? null,
+      averagePrice:  avg,
+      currency:      items[0]?.price.currency    ?? "USD",
+      recentSales:   sales.slice(0, 20),
+      source:        "ebay_browse",
+    };
+  } catch { return null; }
+}
+
 // ─── eBay Finding API ─────────────────────────────────────────────────────────
 
 interface EbayItem {
@@ -132,7 +211,16 @@ export async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
   const cached = await getCachedEbay(q);
   if (cached) return cached;
 
-  // If we're currently rate-limited, return stale data rather than re-hitting the API
+  // Try Browse API first (modern OAuth, no Partner Network required, generous limits)
+  if (process.env.EBAY_CERT_ID) {
+    const browseData = await fetchEbayBrowse(q);
+    if (browseData) {
+      await setCachedEbay(q, browseData);
+      return browseData;
+    }
+  }
+
+  // Fall back to Finding API findCompletedItems (may require Partner Network)
   if (isRateLimited()) return await getStaleCachedEbay(q);
 
   const params = new URLSearchParams({

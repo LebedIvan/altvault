@@ -263,6 +263,18 @@ export const commodities = pgTable("commodities", {
   lastSyncedAt:       timestamp("last_synced_at", { mode: "string" }).defaultNow(),
 });
 
+// ─── Portfolio assets (server-side storage) ────────────────────────────────────
+
+export const portfolioAssets = pgTable("portfolio_assets", {
+  id:         text("id").primaryKey(),                                              // asset UUID
+  userId:     text("user_id").notNull(),
+  data:       jsonb("data").$type<Record<string, unknown>>().notNull(),             // full Asset object
+  createdAt:  timestamp("created_at", { mode: "string" }).defaultNow(),
+  updatedAt:  timestamp("updated_at", { mode: "string" }).defaultNow(),
+}, (t) => ({
+  userIdx: index("portfolio_assets_user_idx").on(t.userId),
+}));
+
 // ─── Portfolio snapshots ───────────────────────────────────────────────────────
 
 export const portfolioSnapshots = pgTable("portfolio_snapshots", {

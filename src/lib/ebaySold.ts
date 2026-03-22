@@ -49,6 +49,33 @@ export async function getCachedEbay(key: string): Promise<EbaySoldData | null> {
   return null;
 }
 
+/** Return stale (expired) cached data — used as fallback when API is rate-limited */
+async function getStaleCachedEbay(key: string): Promise<EbaySoldData | null> {
+  try {
+    const rows = await db.select().from(ebayCache).where(eq(ebayCache.query, key)).limit(1);
+    const row = rows[0];
+    if (row) return row.data as unknown as EbaySoldData;
+  } catch { /* DB unavailable */ }
+  return null;
+}
+
+/** Cache a rate-limit signal for 1 hour so we don't hammer eBay */
+const RATE_LIMIT_KEY = "__ebay_rate_limited__";
+const RATE_LIMIT_TTL = 60 * 60 * 1000; // 1h
+
+function isRateLimited(): boolean {
+  const entry = memCache.get(RATE_LIMIT_KEY);
+  return !!(entry && Date.now() <= entry.expiresAt);
+}
+
+function setRateLimited(): void {
+  // Reuse memCache with a sentinel value
+  memCache.set(RATE_LIMIT_KEY, {
+    data: {} as EbaySoldData,
+    expiresAt: Date.now() + RATE_LIMIT_TTL,
+  });
+}
+
 export async function setCachedEbay(key: string, data: EbaySoldData): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_TTL_MS);
   memCache.set(key, { data, expiresAt: expiresAt.getTime() });
@@ -105,6 +132,9 @@ export async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
   const cached = await getCachedEbay(q);
   if (cached) return cached;
 
+  // If we're currently rate-limited, return stale data rather than re-hitting the API
+  if (isRateLimited()) return await getStaleCachedEbay(q);
+
   const params = new URLSearchParams({
     "OPERATION-NAME":                 "findCompletedItems",
     "SERVICE-VERSION":                "1.0.0",
@@ -122,16 +152,29 @@ export async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
       `https://svcs.ebay.com/services/search/FindingService/v1?${params}`,
     );
     const text = await res.text();
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // HTTP 500 from eBay usually means rate-limited (errorId 10001)
+      setRateLimited();
+      return await getStaleCachedEbay(q);
+    }
 
     let data: EbayFindingResponse;
     try { data = JSON.parse(text) as EbayFindingResponse; }
     catch { return null; }
 
+    // eBay returns errorMessage wrapper for auth/rate-limit errors (even as HTTP 200 sometimes)
+    const errData = data as unknown as { errorMessage?: unknown };
+    if (errData.errorMessage) {
+      setRateLimited();
+      return await getStaleCachedEbay(q);
+    }
+
     const root  = data.findCompletedItemsResponse?.[0];
     const rootA = root as unknown as Record<string, string[]>;
     const ack   = rootA?.ack?.[0];
-    if (ack && ack !== "Success" && ack !== "Warning") return null;
+    if (ack && ack !== "Success" && ack !== "Warning") {
+      return await getStaleCachedEbay(q);
+    }
 
     const items = root?.searchResult?.[0]?.item ?? [];
     const total = parseInt(root?.paginationOutput?.[0]?.totalEntries?.[0] ?? "0");

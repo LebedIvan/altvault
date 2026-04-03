@@ -9,6 +9,7 @@ import { AssetTable } from "./AssetTable";
 import { AllocationChart } from "./AllocationChart";
 import { TaxReportPanel } from "./TaxReport";
 import { AddAssetModal } from "./AddAssetModal";
+import { NewTransactionModal } from "./NewTransactionModal";
 import { TopMovers } from "./TopMovers";
 import { computePortfolioSummary } from "@/lib/calculations/portfolio";
 import { computeHealthScore } from "@/lib/calculations/healthScore";
@@ -41,6 +42,7 @@ export function PortfolioDashboard() {
   const [tab, setTab] = useState<Tab>("overview");
   const [taxYear, setTaxYear] = useState(2024);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showNewTxModal, setShowNewTxModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshLog, setRefreshLog] = useState<RefreshResult[]>([]);
 
@@ -183,6 +185,14 @@ export function PortfolioDashboard() {
               className="fm rounded-lg border border-[#1C2640] px-2 py-1.5 text-xs text-[#3E5070] hover:border-[#2A3A50] hover:text-[#B0C4DE] transition-colors"
             >
               ↩
+            </button>
+
+            {/* New transaction */}
+            <button
+              onClick={() => setShowNewTxModal(true)}
+              className="fm flex items-center gap-1 rounded-lg border border-[#4ADE80]/30 bg-[#4ADE80]/10 px-2.5 sm:px-4 py-1.5 text-xs font-bold text-[#4ADE80] hover:bg-[#4ADE80]/20 uppercase tracking-wider transition-colors"
+            >
+              ± <span className="hidden sm:inline">Сделка</span>
             </button>
 
             {/* Add asset */}
@@ -366,7 +376,8 @@ export function PortfolioDashboard() {
         )}
       </main>
 
-      {showAddModal && <AddAssetModal onClose={() => setShowAddModal(false)} />}
+      {showAddModal    && <AddAssetModal onClose={() => setShowAddModal(false)} />}
+      {showNewTxModal  && <NewTransactionModal onClose={() => setShowNewTxModal(false)} />}
     </div>
   );
 }

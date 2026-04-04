@@ -23,6 +23,8 @@ export function AssetPageClient() {
   const [refreshing, setRefreshing]     = useState(false);
   const [priceSource, setPriceSource]   = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  // eBay sold history — used as chart override when asset has no long history
+  const [marketHistory, setMarketHistory] = useState<{ date: string; valueCents: number }[]>([]);
 
   if (!isLoaded) {
     return (
@@ -112,7 +114,10 @@ export function AssetPageClient() {
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
-              <PriceHistoryChart asset={asset} />
+              <PriceHistoryChart
+                asset={asset}
+                historyOverride={marketHistory.length > 0 ? marketHistory : undefined}
+              />
               {asset.name && (
                 <PriceSourcesPanel
                   assetClass={asset.assetClass}
@@ -123,6 +128,7 @@ export function AssetPageClient() {
                     updatePrice(asset.id, cents);
                     setPriceSource("Market data");
                   }}
+                  onHistoryData={setMarketHistory}
                 />
               )}
             </div>

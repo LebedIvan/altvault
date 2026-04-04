@@ -15,6 +15,8 @@ interface Props {
   name: string;
   currency?: string;
   onUsePrice?: (cents: number) => void;
+  /** Called once eBay sold history loads — used to populate the price history chart */
+  onHistoryData?: (points: { date: string; valueCents: number }[]) => void;
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -76,7 +78,9 @@ function PriceSparkline({ sales }: { sales: SoldItem[] }) {
 
 function EbayTabContent({ source }: { source: PriceSource }) {
   const [showAll, setShowAll] = useState(false);
-  const sales = source.recentSales ?? [];
+  const sales = [...(source.recentSales ?? [])].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
   const visible = showAll ? sales : sales.slice(0, 8);
   const currency = source.currency;
   const trending = source.meta?.avgCents;
@@ -147,22 +151,34 @@ function EbayTabContent({ source }: { source: PriceSource }) {
         <div>
           <p className="mb-2 text-[10px] uppercase tracking-wider text-slate-600">Recent sales</p>
           <div className="space-y-0.5">
-            {visible.map((sale, i) => (
-              <div key={i} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
-                <p className="min-w-0 flex-1 truncate text-xs text-slate-400" title={sale.title}>
-                  {sale.title.length > 48 ? sale.title.slice(0, 48) + "…" : sale.title}
-                </p>
-                <div className="ml-4 flex items-center gap-3 shrink-0">
-                  <span className="text-[10px] text-slate-600">{relativeTime(sale.date)}</span>
-                  <span className={clsx(
-                    "text-xs font-semibold tabular-nums",
-                    sale.price * 100 >= (trending ?? 0) ? "text-emerald-400" : "text-slate-300",
-                  )}>
-                    {fmtCents(Math.round(sale.price * 100), sale.currency)}
-                  </span>
+            {visible.map((sale, i) => {
+              const inner = (
+                <>
+                  <p className="min-w-0 flex-1 truncate text-xs text-slate-400" title={sale.title}>
+                    {sale.title.length > 48 ? sale.title.slice(0, 48) + "…" : sale.title}
+                  </p>
+                  <div className="ml-4 flex items-center gap-3 shrink-0">
+                    <span className="text-[10px] text-slate-600">{relativeTime(sale.date)}</span>
+                    <span className={clsx(
+                      "text-xs font-semibold tabular-nums",
+                      sale.price * 100 >= (trending ?? 0) ? "text-emerald-400" : "text-slate-300",
+                    )}>
+                      {fmtCents(Math.round(sale.price * 100), sale.currency)}
+                    </span>
+                  </div>
+                </>
+              );
+              return sale.url ? (
+                <a key={i} href={sale.url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
+                  {inner}
+                </a>
+              ) : (
+                <div key={i} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
+                  {inner}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {sales.length > 8 && (
             <button
@@ -208,10 +224,13 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
   }
   const sales = source.recentSales ?? [];
 
-  if ((source.status === "unavailable" || source.priceCents == null) && sales.length === 0) {
+  const salesSorted = [...sales].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+  if ((source.status === "unavailable" || source.priceCents == null) && salesSorted.length === 0) {
     return <p className="text-xs text-slate-500">Price data unavailable from this source.</p>;
   }
-  const visible = showAll ? sales : sales.slice(0, 8);
+  const visible = showAll ? salesSorted : salesSorted.slice(0, 8);
 
   return (
     <div className="space-y-4">
@@ -259,40 +278,52 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
       )}
 
       {/* Recent sales (e.g. Skinport history) */}
-      {sales.length >= 3 && (
+      {salesSorted.length >= 3 && (
         <div>
           <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-600">
-            Price history ({sales.length} recent sales)
+            Price history ({salesSorted.length} recent sales)
           </p>
           <div className="rounded-lg bg-slate-800/40 px-2 py-1">
-            <PriceSparkline sales={sales} />
+            <PriceSparkline sales={salesSorted} />
           </div>
         </div>
       )}
-      {sales.length > 0 && (
+      {salesSorted.length > 0 && (
         <div>
           <p className="mb-2 text-[10px] uppercase tracking-wider text-slate-600">Recent sales</p>
           <div className="space-y-0.5">
-            {visible.map((sale, i) => (
-              <div key={i} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
-                <p className="min-w-0 flex-1 truncate text-xs text-slate-400" title={sale.title}>
-                  {sale.title.length > 48 ? sale.title.slice(0, 48) + "…" : sale.title}
-                </p>
-                <div className="ml-4 flex items-center gap-3 shrink-0">
-                  <span className="text-[10px] text-slate-600">{relativeTime(sale.date)}</span>
-                  <span className="text-xs font-semibold tabular-nums text-slate-300">
-                    {fmtCents(Math.round(sale.price * 100), sale.currency)}
-                  </span>
+            {visible.map((sale, i) => {
+              const inner = (
+                <>
+                  <p className="min-w-0 flex-1 truncate text-xs text-slate-400" title={sale.title}>
+                    {sale.title.length > 48 ? sale.title.slice(0, 48) + "…" : sale.title}
+                  </p>
+                  <div className="ml-4 flex items-center gap-3 shrink-0">
+                    <span className="text-[10px] text-slate-600">{relativeTime(sale.date)}</span>
+                    <span className="text-xs font-semibold tabular-nums text-slate-300">
+                      {fmtCents(Math.round(sale.price * 100), sale.currency)}
+                    </span>
+                  </div>
+                </>
+              );
+              return sale.url ? (
+                <a key={i} href={sale.url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
+                  {inner}
+                </a>
+              ) : (
+                <div key={i} className="flex items-center justify-between rounded-lg px-2 py-1.5 hover:bg-slate-800/40 transition-colors">
+                  {inner}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          {sales.length > 8 && (
+          {salesSorted.length > 8 && (
             <button
               onClick={() => setShowAll(!showAll)}
               className="mt-2 w-full rounded-lg py-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
             >
-              {showAll ? "Show less ↑" : `Show all ${sales.length} sales ↓`}
+              {showAll ? "Show less ↑" : `Show all ${salesSorted.length} sales ↓`}
             </button>
           )}
         </div>
@@ -310,7 +341,7 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function PriceSourcesPanel({ assetClass, externalId, name, onUsePrice }: Props) {
+export function PriceSourcesPanel({ assetClass, externalId, name, onUsePrice, onHistoryData }: Props) {
   const [sources, setSources] = useState<PriceSource[]>([]);
   const [active,  setActive]  = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -331,7 +362,20 @@ export function PriceSourcesPanel({ assetClass, externalId, name, onUsePrice }: 
     setSources(data.sources);
     setFetchedAt(data.fetchedAt);
     if (!active && data.sources[0]) setActive(data.sources[0].key);
-  }, [assetClass, externalId, name, active]);
+
+    // Pass eBay sold history to parent for the price history chart
+    if (onHistoryData) {
+      const ebaySrc = data.sources.find((s) => s.key === "ebay");
+      const soldItems = ebaySrc?.recentSales ?? [];
+      if (soldItems.length > 0) {
+        const pts = soldItems
+          .filter((s) => s.price > 0)
+          .map((s) => ({ date: s.date.slice(0, 10), valueCents: Math.round(s.price * 100) }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        onHistoryData(pts);
+      }
+    }
+  }, [assetClass, externalId, name, active, onHistoryData]);
 
   useEffect(() => {
     setLoading(true);

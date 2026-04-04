@@ -12,6 +12,7 @@ export interface SoldItem {
   price: number;      // in base currency units (not cents)
   currency: string;
   title: string;
+  url?: string;       // eBay listing URL (itm/… for Finding, itemWebUrl for Browse)
 }
 
 export interface EbaySoldData {
@@ -123,6 +124,7 @@ interface BrowseItem {
   title: string;
   price: { value: string; currency: string };
   itemCreationDate?: string;
+  itemWebUrl?: string;
 }
 
 async function fetchEbayBrowse(q: string): Promise<EbaySoldData | null> {
@@ -151,6 +153,7 @@ async function fetchEbayBrowse(q: string): Promise<EbaySoldData | null> {
       price:    parseFloat(item.price.value),
       currency: item.price.currency,
       date:     item.itemCreationDate ?? new Date().toISOString(),
+      url:      item.itemWebUrl,
     }));
 
     const prices = sales.map((s) => s.price).filter((p) => p > 0).sort((a, b) => a - b);
@@ -266,11 +269,13 @@ export async function fetchEbaySold(q: string): Promise<EbaySoldData | null> {
 
     const sales: SoldItem[] = items.map((item) => {
       const priceObj = item.sellingStatus?.[0]?.currentPrice?.[0];
+      const itemId   = item.itemId?.[0];
       return {
         date:     item.listingInfo?.[0]?.endTime?.[0] ?? new Date().toISOString(),
         price:    parseFloat(priceObj?.__value__ ?? "0"),
         currency: priceObj?.["@currencyId"] ?? "USD",
         title:    item.title?.[0] ?? q,
+        url:      itemId ? `https://www.ebay.com/itm/${itemId}` : undefined,
       };
     });
 

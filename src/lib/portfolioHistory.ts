@@ -111,7 +111,7 @@ function buildAssetPath(asset: Asset, todayStr: string): AssetPath | null {
     .reduce((a, b) => (a < b ? a : b));
 
   const totalDays = dateDiffDays(firstBuyStr, todayStr);
-  if (totalDays <= 0) return null;
+  if (totalDays < 0) return null;
 
   // Average buy price per unit across all buys
   const totalUnits = buys.reduce((s, tx) => s + tx.quantity, 0);
@@ -124,6 +124,11 @@ function buildAssetPath(asset: Asset, todayStr: string): AssetPath | null {
     0,
   );
   const avgBuyPricePerUnit = totalUnits > 0 ? totalCost / totalUnits : asset.currentPriceCents;
+
+  // Bought today — single-point path (0% chart shows flat until data accumulates)
+  if (totalDays === 0) {
+    return { firstBuyStr, path: [avgBuyPricePerUnit] };
+  }
 
   const vol = VOL_BY_CLASS[asset.assetClass] ?? 0.012;
 

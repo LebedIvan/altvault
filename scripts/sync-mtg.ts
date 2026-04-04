@@ -1,27 +1,22 @@
 /**
  * Sync MTG cards from Scryfall Bulk Data into the mtg_cards table.
+ * Format: NDJSON array — one JSON object per line.
  *
- * Strategy:
- *   1. GET https://api.scryfall.com/bulk-data → find "all_cards" download URL
- *   2. Stream-download the JSON array (~100MB) and parse in chunks
- *   3. Filter out tokens, art series, digital-only without prices
- *   4. Upsert to mtg_cards in chunks of 500
- *
- * Usage:
- *   npx tsx scripts/sync-mtg.ts
- *
- * No API key required (Scryfall is free).
+ * Usage: npx tsx scripts/sync-mtg.ts
  */
 
 import path from "path";
 import fs from "fs";
-import type { MtgCardRecord } from "../src/lib/mtgCardRecord";
+import https from "node:https";
+import zlib from "node:zlib";
+import type { IncomingMessage } from "node:http";
+
+// ─── Load .env.local ──────────────────────────────────────────────────────────
 
 function loadEnv() {
   const envPath = path.join(process.cwd(), ".env.local");
   if (!fs.existsSync(envPath)) return;
-  const lines = fs.readFileSync(envPath, "utf8").split("\n");
-  for (const line of lines) {
+  for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
@@ -35,21 +30,23 @@ function loadEnv() {
 loadEnv();
 
 import { upsertCards, getStats } from "../src/lib/mtgDb";
+import type { MtgCardRecord } from "../src/lib/mtgCardRecord";
+
+// ─── Logger ───────────────────────────────────────────────────────────────────
 
 function log(msg: string) {
   process.stdout.write(`[${new Date().toISOString().slice(11, 19)}] ${msg}\n`);
 }
 
-function eurCents(price: string | null | undefined): number | null {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toCents(price: string | null | undefined): number | null {
   if (!price) return null;
   const n = parseFloat(price);
   return isNaN(n) ? null : Math.round(n * 100);
 }
 
-interface ScryfallBulkDataEntry {
-  type: string;
-  download_uri: string;
-}
+const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "art_series", "emblem"]);
 
 interface ScryfallCard {
   id: string;
@@ -66,49 +63,16 @@ interface ScryfallCard {
   edhrec_rank?: number;
   layout?: string;
   digital?: boolean;
-  image_uris?: {
-    small?: string;
-    normal?: string;
-    large?: string;
-    png?: string;
-  };
+  image_uris?: { small?: string; normal?: string; png?: string };
   card_faces?: Array<{ image_uris?: { small?: string; normal?: string; png?: string } }>;
-  prices?: {
-    eur?: string | null;
-    eur_foil?: string | null;
-    usd?: string | null;
-    usd_foil?: string | null;
-  };
-  purchase_uris?: {
-    tcgplayer?: string;
-    cardmarket?: string;
-  };
+  prices?: { eur?: string | null; eur_foil?: string | null; usd?: string | null; usd_foil?: string | null };
+  purchase_uris?: { tcgplayer?: string; cardmarket?: string };
 }
 
-// Layouts to skip
-const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "art_series", "emblem"]);
-
-async function getBulkDataUrl(): Promise<string> {
-  const res = await fetch("https://api.scryfall.com/bulk-data", {
-    headers: { "User-Agent": "Vaulty/1.0" },
-  });
-  if (!res.ok) throw new Error(`Scryfall bulk-data API returned ${res.status}`);
-  const data = (await res.json()) as { data: ScryfallBulkDataEntry[] };
-  const entry = data.data.find((e) => e.type === "all_cards");
-  if (!entry) throw new Error("Could not find all_cards bulk data entry");
-  return entry.download_uri;
-}
-
-function cardToRecord(card: ScryfallCard): MtgCardRecord | null {
-  // Skip unwanted layouts
+function toRecord(card: ScryfallCard): MtgCardRecord | null {
   if (card.layout && SKIP_LAYOUTS.has(card.layout)) return null;
-
-  // Skip pure digital cards with no prices
   if (card.digital && !card.prices?.eur && !card.prices?.usd) return null;
-
-  // Resolve front-face images (DFC cards store images in card_faces)
-  const imageUris = card.image_uris ?? card.card_faces?.[0]?.image_uris;
-
+  const imgs = card.image_uris ?? card.card_faces?.[0]?.image_uris;
   return {
     id:                card.id,
     oracleId:          card.oracle_id          ?? null,
@@ -122,13 +86,13 @@ function cardToRecord(card: ScryfallCard): MtgCardRecord | null {
     typeLine:          card.type_line          ?? null,
     oracleText:        card.oracle_text        ?? null,
     edhrecRank:        card.edhrec_rank        ?? null,
-    imageSmallUrl:     imageUris?.small        ?? null,
-    imageLargeUrl:     imageUris?.normal       ?? null,
-    imagePngUrl:       imageUris?.png          ?? null,
-    priceEurCents:     eurCents(card.prices?.eur),
-    priceEurFoilCents: eurCents(card.prices?.eur_foil),
-    priceUsdCents:     eurCents(card.prices?.usd),
-    priceUsdFoilCents: eurCents(card.prices?.usd_foil),
+    imageSmallUrl:     imgs?.small             ?? null,
+    imageLargeUrl:     imgs?.normal            ?? null,
+    imagePngUrl:       imgs?.png               ?? null,
+    priceEurCents:     toCents(card.prices?.eur),
+    priceEurFoilCents: toCents(card.prices?.eur_foil),
+    priceUsdCents:     toCents(card.prices?.usd),
+    priceUsdFoilCents: toCents(card.prices?.usd_foil),
     priceUpdatedAt:    new Date().toISOString(),
     tcgplayerUrl:      card.purchase_uris?.tcgplayer  ?? null,
     cardmarketUrl:     card.purchase_uris?.cardmarket ?? null,
@@ -136,115 +100,161 @@ function cardToRecord(card: ScryfallCard): MtgCardRecord | null {
   };
 }
 
+// ─── HTTP GET with redirect follow ────────────────────────────────────────────
+
+function httpsGet(url: string): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { "User-Agent": "Vaulty/1.0", "Accept-Encoding": "gzip" } }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
+        const location = res.headers.location;
+        if (!location) { reject(new Error("Redirect with no Location header")); return; }
+        log(`  Redirect → ${location.slice(0, 70)}...`);
+        resolve(httpsGet(location));
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode} ${res.statusMessage}`));
+        return;
+      }
+      resolve(res);
+    }).on("error", reject);
+  });
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
 async function main() {
-  log("═══ MTG Card Sync (Scryfall Bulk Data) ═════════════════");
+  log("══════════════════════════════════════════════════════════");
+  log("  MTG Card Sync — Scryfall Bulk Data");
+  log("══════════════════════════════════════════════════════════");
 
-  log("Fetching bulk data URL...");
-  const url = await getBulkDataUrl();
-  log(`URL: ${url.slice(0, 80)}...`);
+  // Step 1: get bulk data download URL (small JSON, use fetch)
+  log("Step 1/3  Fetching bulk data index from Scryfall API...");
+  const indexFetch = await fetch("https://api.scryfall.com/bulk-data", {
+    headers: { "User-Agent": "Vaulty/1.0" },
+  });
+  if (!indexFetch.ok) throw new Error(`Scryfall API returned HTTP ${indexFetch.status} ${indexFetch.statusText}`);
 
-  log("Connecting to Scryfall...");
-  const res = await fetch(url, { headers: { "User-Agent": "Vaulty/1.0" } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} — failed to download bulk data`);
-  if (!res.body) throw new Error("No response body from Scryfall");
+  interface BulkEntry { type: string; download_uri: string; size?: number }
+  const index = await indexFetch.json() as { data: BulkEntry[] };
+  const entry = index.data.find((e) => e.type === "all_cards");
+  if (!entry) throw new Error("Could not find 'all_cards' entry in Scryfall bulk-data index");
 
-  const totalBytes = Number(res.headers.get("content-length") ?? 0);
-  log(`Compressed size: ${totalBytes ? (totalBytes / 1024 / 1024).toFixed(0) + " MB (gzipped)" : "unknown"}`);
-  log("Streaming download + parse...");
+  const downloadUrl = entry.download_uri;
+  log(`  URL: ${downloadUrl}`);
+
+  // Step 2: stream download + parse
+  log("Step 2/3  Downloading & parsing (streaming, one card per line)...");
+  log("          [progress every 500 cards or 50 MB]");
+
+  const dataRes = await httpsGet(downloadUrl);
+  const contentEncoding = dataRes.headers["content-encoding"] ?? "";
+  const contentLength = Number(dataRes.headers["content-length"] ?? 0);
+  log(`  Content-Encoding: ${contentEncoding || "none"} | Content-Length: ${contentLength ? (contentLength / 1024 / 1024).toFixed(0) + " MB" : "unknown"}`);
+
+  // Decompress if gzip
+  const stream: NodeJS.ReadableStream = contentEncoding.includes("gzip")
+    ? dataRes.pipe(zlib.createGunzip())
+    : dataRes;
 
   let bytesReceived = 0;
-  let lastProgressMb = 0;
-  let processed = 0;
+  let lastLogMb = 0;
+  let lineBuffer = "";
+  let parsed = 0;
   let skipped = 0;
+  let errors = 0;
+  let upserted = 0;
   const batch: MtgCardRecord[] = [];
   const BATCH_SIZE = 500;
 
-  // Depth-based streaming JSON object extractor
-  let buffer = "";
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let objectStart = -1;
-
-  const decoder = new TextDecoder();
-  const reader = res.body.getReader();
-
   async function flushBatch() {
     if (batch.length === 0) return;
+    const count = batch.length;
     try {
       await upsertCards([...batch]);
+      upserted += count;
     } catch (err) {
-      throw new Error(`DB upsert failed at card ${processed}: ${String(err)}`);
+      log(`  [ERROR] DB upsert failed: ${String(err)}`);
+      throw err;
     }
-    processed += batch.length;
     batch.length = 0;
-    if (processed % 2000 === 0) {
-      const mb = (bytesReceived / 1024 / 1024).toFixed(0);
-      const pct = totalBytes ? ` ${Math.round(bytesReceived / totalBytes * 100)}%` : "";
-      log(`  ${processed.toLocaleString()} cards upserted | ${mb} MB received${pct} | skipped ${skipped.toLocaleString()}`);
+    log(`  Upserted ${upserted.toLocaleString()} | Parsed ${parsed.toLocaleString()} | Skipped ${skipped.toLocaleString()} | Received ${(bytesReceived / 1024 / 1024).toFixed(0)} MB`);
+  }
+
+  function processLine(raw: string) {
+    // Strip leading comma or brackets (NDJSON inside array: "[", ",{...}", "]")
+    const line = raw.trim().replace(/^,/, "").replace(/,$/, "").trim();
+    if (!line || line === "[" || line === "]") return;
+
+    parsed++;
+    try {
+      const card = JSON.parse(line) as ScryfallCard;
+      const record = toRecord(card);
+      if (record) batch.push(record);
+      else skipped++;
+    } catch (err) {
+      errors++;
+      if (errors <= 5) log(`  [WARN] JSON parse error on line ${parsed}: ${String(err).slice(0, 100)}`);
     }
   }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  await new Promise<void>((resolve, reject) => {
+    stream.on("error", (err) => {
+      log(`[ERROR] Stream error: ${String(err)}`);
+      reject(err);
+    });
 
-    bytesReceived += value.length;
-    const mb = bytesReceived / 1024 / 1024;
-    if (mb - lastProgressMb >= 30) {
-      const pct = totalBytes ? ` (${Math.round(bytesReceived / totalBytes * 100)}%)` : "";
-      log(`  Downloading... ${mb.toFixed(0)} MB${pct}`);
-      lastProgressMb = mb;
-    }
+    let pendingFlush = Promise.resolve();
 
-    buffer += decoder.decode(value, { stream: true });
+    stream.on("data", (chunk: Buffer) => {
+      bytesReceived += chunk.length;
 
-    let i = 0;
-    while (i < buffer.length) {
-      const ch = buffer[i]!;
-
-      if (escape) { escape = false; i++; continue; }
-      if (ch === "\\" && inString) { escape = true; i++; continue; }
-      if (ch === '"') { inString = !inString; i++; continue; }
-      if (inString) { i++; continue; }
-
-      if (ch === "{") {
-        if (depth === 0) objectStart = i;
-        depth++;
-      } else if (ch === "}") {
-        depth--;
-        if (depth === 0 && objectStart >= 0) {
-          const json = buffer.slice(objectStart, i + 1);
-          try {
-            const card = JSON.parse(json) as ScryfallCard;
-            const record = cardToRecord(card);
-            if (record) {
-              batch.push(record);
-              if (batch.length >= BATCH_SIZE) await flushBatch();
-            } else {
-              skipped++;
-            }
-          } catch { /* malformed object — skip */ }
-          objectStart = -1;
-          // Trim buffer to prevent unbounded growth — keep only unprocessed tail
-          buffer = buffer.slice(i + 1);
-          i = -1;
-        }
+      // Log download progress every 50 MB
+      const mb = bytesReceived / 1024 / 1024;
+      if (mb - lastLogMb >= 50) {
+        log(`  Downloading... ${mb.toFixed(0)} MB received`);
+        lastLogMb = mb;
       }
-      i++;
-    }
-  }
 
-  await flushBatch();
+      // Split chunk by newline, process complete lines
+      lineBuffer += chunk.toString("utf8");
+      const lines = lineBuffer.split("\n");
+      lineBuffer = lines.pop() ?? ""; // last element may be incomplete
 
+      for (const line of lines) {
+        processLine(line);
+      }
+
+      // Flush batch when full — pause stream to avoid backpressure issues
+      if (batch.length >= BATCH_SIZE) {
+        (stream as NodeJS.ReadableStream & { pause?: () => void }).pause?.();
+        pendingFlush = pendingFlush
+          .then(() => flushBatch())
+          .then(() => { (stream as NodeJS.ReadableStream & { resume?: () => void }).resume?.(); })
+          .catch((err) => { reject(err); });
+      }
+    });
+
+    stream.on("end", () => {
+      // Process any remaining partial line
+      if (lineBuffer.trim()) processLine(lineBuffer);
+      pendingFlush.then(() => flushBatch()).then(resolve).catch(reject);
+    });
+  });
+
+  // Step 3: report
+  log("Step 3/3  Done. Fetching DB stats...");
   const stats = await getStats();
-  log("═══ Done ════════════════════════════════════════════════");
-  log(`Total in DB: ${stats.total.toLocaleString()} cards | Sets: ${stats.sets} | With prices: ${stats.withPrices.toLocaleString()}`);
-  log(`This run:    upserted ${processed.toLocaleString()}, skipped ${skipped.toLocaleString()}`);
+  log("══════════════════════════════════════════════════════════");
+  log(`  DB total:    ${stats.total.toLocaleString()} cards | ${stats.sets} sets | ${stats.withPrices.toLocaleString()} with prices`);
+  log(`  This run:    parsed ${parsed.toLocaleString()} | upserted ${upserted.toLocaleString()} | skipped ${skipped.toLocaleString()} | parse errors ${errors}`);
+  log("══════════════════════════════════════════════════════════");
 }
 
 main().catch((err) => {
-  console.error("\n[ERROR]", err instanceof Error ? err.message : err);
-  if (err instanceof Error && err.stack) console.error(err.stack);
+  log(`[FATAL ERROR] ${err instanceof Error ? err.message : String(err)}`);
+  if (err instanceof Error && err.stack) {
+    console.error(err.stack);
+  }
   process.exit(1);
 });

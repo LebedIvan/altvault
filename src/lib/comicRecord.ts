@@ -37,6 +37,27 @@ export interface ComicRecord {
   // ── Links ─────────────────────────────────────────────────────────────────────
   cvUrl: string | null;
 
+  // ── Creators (from ComicVine person_credits) ──────────────────────────────────
+  writer: string | null;
+  artist: string | null;
+  /** 'golden' | 'silver' | 'bronze' | 'copper' | 'modern' */
+  era: string | null;
+
+  // ── Market prices (updated by daily price-sync cron) ──────────────────────────
+  /** FMV for raw (ungraded) copy, USD cents */
+  priceRawCents: number | null;
+  /** FMV for CGC 9.8, USD cents */
+  priceGraded98Cents: number | null;
+  /** FMV for CGC 9.6, USD cents */
+  priceGraded96Cents: number | null;
+  /** FMV for CGC 9.4, USD cents */
+  priceGraded94Cents: number | null;
+  priceCurrency: string;
+  /** 'ebay_browse' | 'ebay_sold' | 'manual' */
+  priceSource: string | null;
+  priceUpdatedAt: string | null;
+  priceSampleSize: number | null;
+
   // ── Metadata ──────────────────────────────────────────────────────────────────
   /** Which APIs contributed data, e.g. ["comicvine"] */
   sources: string[];

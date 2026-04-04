@@ -49,13 +49,33 @@ function isRateLimited(ip: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Suspicious name patterns (bots often submit placeholder or repeated words)
+// ---------------------------------------------------------------------------
+function isSuspiciousName(name: string): boolean {
+  const trimmed = name.trim().toLowerCase();
+  // Exact placeholder value from the form
+  if (trimmed === "иван иванов") return true;
+  // All digits or empty after trim
+  if (/^\d+$/.test(trimmed)) return true;
+  // Same word repeated: "Youtube Youtube", "Test Test"
+  const parts = trimmed.split(/\s+/);
+  if (parts.length >= 2 && parts[0] === parts[parts.length - 1]) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Input schema
 // ---------------------------------------------------------------------------
 const registerSchema = z.object({
   email: z.string().email("Некорректный email"),
   name: z.string().min(1, "Имя обязательно").max(100),
   password: z.string().min(6, "Пароль минимум 6 символов"),
+  _hp: z.string().optional(),  // honeypot — must be empty
+  _t:  z.number().optional(),  // page-load timestamp (ms)
+  _cf: z.string().optional(),  // Cloudflare Turnstile token
 });
+
+const MIN_FORM_TIME_MS = 3_000; // reject if form submitted in < 3 s
 
 export async function POST(req: NextRequest) {
   try {
@@ -72,7 +92,39 @@ export async function POST(req: NextRequest) {
     if (!parsed.success)
       return NextResponse.json({ error: parsed.error.errors[0]?.message ?? "Invalid input" }, { status: 400 });
 
-    const { email, name, password } = parsed.data;
+    const { email, name, password, _hp, _t, _cf } = parsed.data;
+
+    // Honeypot — bots fill hidden fields; silently appear to succeed
+    if (_hp) {
+      return NextResponse.json({ ok: true, requiresVerification: true, user: { id: "x", email, name } });
+    }
+
+    // Timing — bots submit forms instantly
+    if (_t !== undefined && Date.now() - _t < MIN_FORM_TIME_MS) {
+      return NextResponse.json({ error: "Пожалуйста, заполните форму чуть медленнее" }, { status: 429 });
+    }
+
+    // Cloudflare Turnstile verification
+    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
+    if (turnstileSecret) {
+      if (!_cf) {
+        return NextResponse.json({ error: "Пожалуйста, подтвердите, что вы не робот" }, { status: 400 });
+      }
+      const verifyRes = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ secret: turnstileSecret, response: _cf }),
+      });
+      const verifyData = await verifyRes.json() as { success: boolean };
+      if (!verifyData.success) {
+        return NextResponse.json({ error: "Проверка не пройдена. Попробуйте снова." }, { status: 400 });
+      }
+    }
+
+    // Name quality — block obvious fake names
+    if (isSuspiciousName(name)) {
+      return NextResponse.json({ error: "Пожалуйста, укажите ваше настоящее имя" }, { status: 400 });
+    }
 
     // Block disposable domains
     const domain = email.split("@")[1]?.toLowerCase();

@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Turnstile } from "@marsidev/react-turnstile";
 type Mode = "login" | "register";
 
 interface Props { mode: Mode }
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 export function AuthPage({ mode }: Props) {
   const router = useRouter();
@@ -15,6 +18,10 @@ export function AuthPage({ mode }: Props) {
   const [password, setPassword] = useState("");
   const [error, setError]       = useState<string | null>(null);
   const [loading, setLoading]   = useState(false);
+  // Anti-bot: track page-load time, honeypot, and Turnstile token
+  const loadedAt  = useRef(Date.now());
+  const [honeypot, setHoneypot] = useState("");
+  const [cfToken, setCfToken]   = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,7 +30,7 @@ export function AuthPage({ mode }: Props) {
 
     try {
       const body = mode === "register"
-        ? { name, email, password }
+        ? { name, email, password, _hp: honeypot, _t: loadedAt.current, _cf: cfToken }
         : { email, password };
 
       const res  = await fetch(`/api/auth/${mode}`, {
@@ -75,6 +82,15 @@ export function AuthPage({ mode }: Props) {
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Honeypot — hidden from humans, bots fill this field */}
+          <input
+            aria-hidden="true"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            style={{ position: "absolute", left: "-9999px", top: "-9999px", opacity: 0, height: 0, width: 0, pointerEvents: "none" }}
+          />
           {mode === "register" && (
             <div>
               <label className="fm mb-1.5 block text-xs text-[#4E6080] uppercase tracking-wider">Имя</label>
@@ -120,6 +136,15 @@ export function AuthPage({ mode }: Props) {
             </div>
           )}
 
+          {mode === "register" && TURNSTILE_SITE_KEY && (
+            <Turnstile
+              siteKey={TURNSTILE_SITE_KEY}
+              onSuccess={(token) => setCfToken(token)}
+              onExpire={() => setCfToken("")}
+              options={{ theme: "dark", size: "normal" }}
+            />
+          )}
+
           {error && (
             <p className="rounded-lg border border-[#F87171]/20 bg-[#F87171]/10 px-4 py-2.5 fm text-xs text-[#F87171]">
               {error}
@@ -128,7 +153,7 @@ export function AuthPage({ mode }: Props) {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (mode === "register" && !!TURNSTILE_SITE_KEY && !cfToken)}
             className="fm w-full rounded-lg bg-[#F59E0B] py-2.5 text-sm font-semibold text-[#0B1120] transition-colors hover:bg-[#FCD34D] disabled:opacity-50 uppercase tracking-wider"
           >
             {loading

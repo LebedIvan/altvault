@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/refresh-prices",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-comics",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-comics-prices",
+      "schedule": "0 5 * * *"
     }
   ]
 }

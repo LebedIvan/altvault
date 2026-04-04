@@ -232,14 +232,29 @@ export const comics = pgTable("comics", {
   keyIssueReason: text("key_issue_reason"),
   characters:     jsonb("characters").$type<string[]>().default([]),
   storyArcs:      jsonb("story_arcs").$type<string[]>().default([]),
-  cvUrl:          text("cv_url"),
-  sources:        jsonb("sources").$type<string[]>().default([]),
-  lastSyncedAt:   timestamp("last_synced_at", { mode: "string" }).defaultNow(),
+  cvUrl:              text("cv_url"),
+  sources:            jsonb("sources").$type<string[]>().default([]),
+  lastSyncedAt:       timestamp("last_synced_at", { mode: "string" }).defaultNow(),
+  // ── Creators ────────────────────────────────────────────────────────────────
+  writer:             text("writer"),
+  artist:             text("artist"),
+  /** 'golden' | 'silver' | 'bronze' | 'copper' | 'modern' */
+  era:                text("era"),
+  // ── Market prices (updated by daily price-sync cron) ────────────────────────
+  priceRawCents:      integer("price_raw_cents"),        // FMV ungraded, USD cents
+  priceGraded98Cents: integer("price_graded_98_cents"),  // CGC 9.8
+  priceGraded96Cents: integer("price_graded_96_cents"),  // CGC 9.6
+  priceGraded94Cents: integer("price_graded_94_cents"),  // CGC 9.4
+  priceCurrency:      text("price_currency").default("USD"),
+  priceSource:        text("price_source"),              // 'ebay_browse'|'ebay_sold'|'manual'
+  priceUpdatedAt:     timestamp("price_updated_at", { mode: "string" }),
+  priceSampleSize:    integer("price_sample_size"),
 }, (t) => ({
-  volumeIdx:    index("comics_volume_name_idx").on(t.volumeName),
-  publisherIdx: index("comics_publisher_idx").on(t.publisher),
-  keyIdx:       index("comics_key_issue_idx").on(t.isKeyIssue),
-  coverDateIdx: index("comics_cover_date_idx").on(t.coverDate),
+  volumeIdx:       index("comics_volume_name_idx").on(t.volumeName),
+  publisherIdx:    index("comics_publisher_idx").on(t.publisher),
+  keyIdx:          index("comics_key_issue_idx").on(t.isKeyIssue),
+  coverDateIdx:    index("comics_cover_date_idx").on(t.coverDate),
+  priceUpdatedIdx: index("comics_price_updated_idx").on(t.priceUpdatedAt),
 }));
 
 // ─── CS2 Items ─────────────────────────────────────────────────────────────────
@@ -301,3 +316,18 @@ export const portfolioSnapshots = pgTable("portfolio_snapshots", {
 }, (t) => ({
   userDateIdx: uniqueIndex("snapshots_user_date_idx").on(t.userId, t.date),
 }));
+
+// ─── Sync logs ─────────────────────────────────────────────────────────────────
+
+export const syncLogs = pgTable("sync_logs", {
+  id:             integer("id").generatedByDefaultAsIdentity().primaryKey(),
+  syncType:       text("sync_type").notNull(),          // 'comics_metadata' | 'comics_prices'
+  startedAt:      timestamp("started_at",  { mode: "string" }).notNull().defaultNow(),
+  finishedAt:     timestamp("finished_at", { mode: "string" }),
+  status:         text("status").notNull().default("running"), // 'running'|'success'|'partial'|'failed'
+  recordsTotal:   integer("records_total").default(0),
+  recordsUpdated: integer("records_updated").default(0),
+  recordsFailed:  integer("records_failed").default(0),
+  errorMessage:   text("error_message"),
+  details:        jsonb("details"),
+});

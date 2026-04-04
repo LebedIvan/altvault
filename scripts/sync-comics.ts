@@ -62,6 +62,17 @@ function log(msg: string) {
   process.stdout.write(`[${new Date().toISOString().slice(11, 19)}] ${msg}\n`);
 }
 
+function deriveEra(coverDate: string | null | undefined): string | null {
+  if (!coverDate) return null;
+  const year = parseInt(coverDate.slice(0, 4));
+  if (isNaN(year)) return null;
+  if (year < 1956) return "golden";
+  if (year < 1970) return "silver";
+  if (year < 1985) return "bronze";
+  if (year < 1993) return "copper";
+  return "modern";
+}
+
 /** Strip HTML tags from ComicVine description fields */
 function stripHtml(html: string | null | undefined): string | null {
   if (!html) return null;
@@ -95,6 +106,7 @@ interface CVIssueDetail extends CVSearchResult {
   character_credits: { name: string }[] | null;
   story_arc_credits: { name: string }[] | null;
   publisher: { name: string } | null;
+  person_credits: { name: string; role: string }[] | null;
 }
 
 // ─── Curated key-issue search list ───────────────────────────────────────────
@@ -227,7 +239,7 @@ async function cvIssueDetail(id: number): Promise<CVIssueDetail | null> {
     `?api_key=${CV_KEY}` +
     `&format=json` +
     `&field_list=id,name,issue_number,volume,cover_date,image,site_detail_url,` +
-    `description,character_credits,story_arc_credits,publisher`;
+    `description,character_credits,story_arc_credits,publisher,person_credits`;
   try {
     const res = await fetchWithTimeout(url, 15000);
     if (!res.ok) return null;
@@ -319,6 +331,17 @@ async function phaseEnrich(resolved: Resolved[]) {
       cvUrl:         src.site_detail_url ?? null,
       sources:       ["comicvine"],
       lastSyncedAt:  now,
+      writer:        detail?.person_credits?.find((p) => p.role.toLowerCase().includes("writer"))?.name ?? null,
+      artist:        detail?.person_credits?.find((p) => p.role.toLowerCase().includes("artist") || p.role.toLowerCase().includes("pencil"))?.name ?? null,
+      era:           deriveEra(src.cover_date),
+      priceRawCents:      null,
+      priceGraded98Cents: null,
+      priceGraded96Cents: null,
+      priceGraded94Cents: null,
+      priceCurrency:      "USD",
+      priceSource:        null,
+      priceUpdatedAt:     null,
+      priceSampleSize:    null,
     };
 
     await upsertIssues([record]);

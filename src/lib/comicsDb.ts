@@ -26,27 +26,42 @@ function recordToRow(r: Partial<ComicRecord> & { cvId: string; volumeName: strin
     cvUrl:          r.cvUrl         ?? null,
     sources:        r.sources       ?? [],
     lastSyncedAt:   new Date().toISOString(),
+    writer:         r.writer        ?? null,
+    artist:         r.artist        ?? null,
+    era:            r.era           ?? null,
+    // Price fields are intentionally omitted here — managed only by updateComicPrices()
   };
 }
 
 function rowToRecord(row: typeof comics.$inferSelect): ComicRecord {
   return {
-    cvId:           row.cvId,
-    volumeName:     row.volumeName,
-    volumeCvId:     row.volumeCvId    ?? null,
-    issueNumber:    row.issueNumber,
-    name:           row.name          ?? null,
-    publisher:      row.publisher     ?? null,
-    coverDate:      row.coverDate     ?? null,
-    coverImageUrl:  row.coverImageUrl ?? null,
-    description:    row.description   ?? null,
-    isKeyIssue:     row.isKeyIssue,
-    keyIssueReason: row.keyIssueReason ?? null,
-    characters:     (row.characters as string[]) ?? [],
-    storyArcs:      (row.storyArcs as string[])  ?? [],
-    cvUrl:          row.cvUrl         ?? null,
-    sources:        (row.sources as string[])     ?? [],
-    lastSyncedAt:   row.lastSyncedAt ?? new Date().toISOString(),
+    cvId:               row.cvId,
+    volumeName:         row.volumeName,
+    volumeCvId:         row.volumeCvId         ?? null,
+    issueNumber:        row.issueNumber,
+    name:               row.name               ?? null,
+    publisher:          row.publisher          ?? null,
+    coverDate:          row.coverDate          ?? null,
+    coverImageUrl:      row.coverImageUrl      ?? null,
+    description:        row.description        ?? null,
+    isKeyIssue:         row.isKeyIssue,
+    keyIssueReason:     row.keyIssueReason     ?? null,
+    characters:         (row.characters as string[]) ?? [],
+    storyArcs:          (row.storyArcs as string[])  ?? [],
+    cvUrl:              row.cvUrl              ?? null,
+    sources:            (row.sources as string[])     ?? [],
+    lastSyncedAt:       row.lastSyncedAt       ?? new Date().toISOString(),
+    writer:             row.writer             ?? null,
+    artist:             row.artist             ?? null,
+    era:                row.era                ?? null,
+    priceRawCents:      row.priceRawCents      ?? null,
+    priceGraded98Cents: row.priceGraded98Cents ?? null,
+    priceGraded96Cents: row.priceGraded96Cents ?? null,
+    priceGraded94Cents: row.priceGraded94Cents ?? null,
+    priceCurrency:      row.priceCurrency      ?? "USD",
+    priceSource:        row.priceSource        ?? null,
+    priceUpdatedAt:     row.priceUpdatedAt     ?? null,
+    priceSampleSize:    row.priceSampleSize    ?? null,
   };
 }
 
@@ -86,6 +101,9 @@ export async function upsertIssues(incoming: Partial<ComicRecord>[]): Promise<vo
           cvUrl:          sql`COALESCE(excluded.cv_url, comics.cv_url)`,
           sources:        sql`(SELECT jsonb_agg(DISTINCT elem) FROM jsonb_array_elements_text(COALESCE(comics.sources, '[]'::jsonb) || COALESCE(excluded.sources, '[]'::jsonb)) AS elem)`,
           lastSyncedAt:   sql`excluded.last_synced_at`,
+          writer:         sql`COALESCE(excluded.writer, comics.writer)`,
+          artist:         sql`COALESCE(excluded.artist, comics.artist)`,
+          era:            sql`COALESCE(excluded.era, comics.era)`,
         },
       });
   }
@@ -148,4 +166,47 @@ export async function getStats(): Promise<{
 export async function isEmpty(): Promise<boolean> {
   const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(comics);
   return (row?.c ?? 0) === 0;
+}
+
+/** Get comics with oldest priceUpdatedAt (never-priced first) for the price-sync cron. */
+export async function getComicsForPriceSync(limit = 20): Promise<ComicRecord[]> {
+  const rows = await db.select().from(comics)
+    .orderBy(sql`price_updated_at ASC NULLS FIRST`)
+    .limit(limit);
+  return rows.map(rowToRecord);
+}
+
+/** Update market prices for a single comic (called by the price-sync cron). */
+export async function updateComicPrices(
+  cvId: string,
+  prices: {
+    priceRawCents?: number | null;
+    priceGraded98Cents?: number | null;
+    priceGraded96Cents?: number | null;
+    priceGraded94Cents?: number | null;
+    priceSource?: string;
+    priceSampleSize?: number | null;
+    priceCurrency?: string;
+  },
+): Promise<void> {
+  await db.update(comics)
+    .set({
+      priceRawCents:      prices.priceRawCents      ?? null,
+      priceGraded98Cents: prices.priceGraded98Cents ?? null,
+      priceGraded96Cents: prices.priceGraded96Cents ?? null,
+      priceGraded94Cents: prices.priceGraded94Cents ?? null,
+      priceCurrency:      prices.priceCurrency      ?? "USD",
+      priceSource:        prices.priceSource        ?? null,
+      priceUpdatedAt:     new Date().toISOString(),
+      priceSampleSize:    prices.priceSampleSize    ?? null,
+    })
+    .where(eq(comics.cvId, cvId));
+}
+
+/** Get comics with oldest lastSyncedAt for the metadata-sync cron. */
+export async function getComicsForMetadataSync(limit = 25): Promise<ComicRecord[]> {
+  const rows = await db.select().from(comics)
+    .orderBy(sql`last_synced_at ASC NULLS FIRST`)
+    .limit(limit);
+  return rows.map(rowToRecord);
 }

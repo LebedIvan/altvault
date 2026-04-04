@@ -107,8 +107,8 @@ async function searchLocalDb(q: string): Promise<ComicSuggestion[]> {
         rarity:     r.keyIssueReason ?? null,
         imageSmall: r.coverImageUrl ?? null,
         imageLarge: r.coverImageUrl ?? null,
-        priceCents: null,
-        currency:   "USD",
+        priceCents: r.priceRawCents ?? null,
+        currency:   r.priceCurrency ?? "USD",
       };
     });
   } catch {
@@ -165,12 +165,15 @@ const STATIC_COMICS: ComicSuggestion[] = [
 ];
 
 function dedupeById(items: ComicSuggestion[]): ComicSuggestion[] {
-  const seen = new Set<string>();
-  return items.filter((s) => {
-    if (seen.has(s.id)) return false;
-    seen.add(s.id);
-    return true;
-  });
+  const map = new Map<string, ComicSuggestion>();
+  for (const item of items) {
+    const existing = map.get(item.id);
+    // Prefer item that has a price over one that doesn't
+    if (!existing || (existing.priceCents == null && item.priceCents != null)) {
+      map.set(item.id, item);
+    }
+  }
+  return Array.from(map.values());
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────

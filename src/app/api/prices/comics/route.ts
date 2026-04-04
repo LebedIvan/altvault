@@ -73,7 +73,7 @@ export async function GET(request: Request) {
   }
 
   // 3. Fetch live eBay price (Browse → Finding, with 24h DB cache)
-  const ebayQuery = `"${volumeName} #${issueNumber}" comic book`;
+  const ebayQuery = `"${volumeName} #${issueNumber}"`;
   const data = await fetchEbaySold(ebayQuery);
 
   if (data && data.trendingPrice != null) {

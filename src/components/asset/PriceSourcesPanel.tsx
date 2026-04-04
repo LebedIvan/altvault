@@ -42,6 +42,59 @@ function relativeTime(iso: string): string {
   return `${Math.floor(days / 365)}y ago`;
 }
 
+// ─── Chart history builder ────────────────────────────────────────────────────
+// Converts raw eBay sold items → smooth daily series for PriceHistoryChart.
+// Steps: deduplicate by date (median per day) → filter outliers (IQR) → interpolate gaps.
+
+function buildChartHistory(soldItems: SoldItem[]): { date: string; valueCents: number }[] {
+  // 1. Group by date, take median per day
+  const byDate = new Map<string, number[]>();
+  for (const item of soldItems) {
+    if (item.price <= 0) continue;
+    const d = item.date.slice(0, 10);
+    const arr = byDate.get(d) ?? [];
+    arr.push(item.price);
+    byDate.set(d, arr);
+  }
+  if (byDate.size === 0) return [];
+
+  const dailyPts = Array.from(byDate.entries())
+    .map(([date, prices]) => {
+      const sorted = [...prices].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      return { date, valueCents: Math.round(median * 100) };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // 2. Filter outliers via IQR (keep values within Q1 − 2×IQR … Q3 + 2×IQR)
+  const vals = dailyPts.map((p) => p.valueCents).sort((a, b) => a - b);
+  const q1   = vals[Math.floor(vals.length * 0.25)] ?? 0;
+  const q3   = vals[Math.floor(vals.length * 0.75)] ?? 0;
+  const iqr  = q3 - q1;
+  const lo   = q1 - 2 * iqr;
+  const hi   = q3 + 2 * iqr;
+  const filtered = iqr > 0 ? dailyPts.filter((p) => p.valueCents >= lo && p.valueCents <= hi) : dailyPts;
+  if (filtered.length === 0) return dailyPts;
+
+  // 3. Linear interpolation to fill date gaps
+  const result: { date: string; valueCents: number }[] = [];
+  for (let i = 0; i < filtered.length - 1; i++) {
+    const a = filtered[i]!;
+    const b = filtered[i + 1]!;
+    result.push(a);
+    const aMs = new Date(a.date).getTime();
+    const bMs = new Date(b.date).getTime();
+    const days = Math.round((bMs - aMs) / 86_400_000);
+    for (let d = 1; d < days; d++) {
+      const t    = d / days;
+      const date = new Date(aMs + d * 86_400_000).toISOString().slice(0, 10);
+      result.push({ date, valueCents: Math.round(a.valueCents + t * (b.valueCents - a.valueCents)) });
+    }
+  }
+  result.push(filtered[filtered.length - 1]!);
+  return result;
+}
+
 // ─── Sparkline ────────────────────────────────────────────────────────────────
 
 function PriceSparkline({ sales }: { sales: SoldItem[] }) {
@@ -273,9 +326,6 @@ function GenericTabContent({ source, onUsePrice }: { source: PriceSource; onUseP
       {source.meta?.count != null && (
         <p className="text-[10px] text-slate-600">{source.meta.count.toLocaleString()} sales recorded</p>
       )}
-      {source.meta?.note && (
-        <p className="text-[10px] text-slate-600">{source.meta.note}</p>
-      )}
 
       {/* Recent sales (e.g. Skinport history) */}
       {salesSorted.length >= 3 && (
@@ -368,11 +418,7 @@ export function PriceSourcesPanel({ assetClass, externalId, name, onUsePrice, on
       const ebaySrc = data.sources.find((s) => s.key === "ebay");
       const soldItems = ebaySrc?.recentSales ?? [];
       if (soldItems.length > 0) {
-        const pts = soldItems
-          .filter((s) => s.price > 0)
-          .map((s) => ({ date: s.date.slice(0, 10), valueCents: Math.round(s.price * 100) }))
-          .sort((a, b) => a.date.localeCompare(b.date));
-        onHistoryData(pts);
+        onHistoryData(buildChartHistory(soldItems));
       }
     }
   }, [assetClass, externalId, name, active, onHistoryData]);

@@ -298,6 +298,7 @@ export function NewTransactionModal({ onClose }: Props) {
   const [date, setDate] = useState(today);
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
+  const [fetchingPrice, setFetchingPrice] = useState(false);
   const [currency, setCurrency] = useState<Currency>("EUR");
   const [commission, setCommission] = useState("");
   const [notes, setNotes] = useState("");
@@ -386,6 +387,17 @@ export function NewTransactionModal({ onClose }: Props) {
     setCurrency((result.currency as Currency) ?? "EUR");
     if (result.priceCents != null) {
       setPrice((result.priceCents / 100).toFixed(2));
+    } else if (result.assetClass === "comics" && result.externalId) {
+      // Fetch live eBay price for comics that aren't priced in DB yet
+      const cvId = result.externalId.replace(/^cv-/, "");
+      setFetchingPrice(true);
+      fetch(`/api/prices/comics?id=${encodeURIComponent(cvId)}`)
+        .then((r) => r.json())
+        .then((data: { priceCents: number | null }) => {
+          if (data.priceCents != null) setPrice((data.priceCents / 100).toFixed(2));
+        })
+        .catch(() => {})
+        .finally(() => setFetchingPrice(false));
     }
     if (errors.asset) setErrors((e) => ({ ...e, asset: "" }));
   }
@@ -725,10 +737,10 @@ export function NewTransactionModal({ onClose }: Props) {
               label="Цена за единицу"
               error={errors.price}
               hint={
-                selectedAsset?.priceCents != null && price
-                  ? `Рыночная цена на ${new Date().toLocaleDateString("ru-RU")}`
-                  : selectedAsset && selectedAsset.priceCents == null
-                    ? "Рыночная цена недоступна"
+                fetchingPrice
+                  ? "Загружаем рыночную цену…"
+                  : price
+                    ? `Рыночная цена на ${new Date().toLocaleDateString("ru-RU")}`
                     : undefined
               }
               required
@@ -738,6 +750,7 @@ export function NewTransactionModal({ onClose }: Props) {
                   type="number"
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
+                  disabled={fetchingPrice}
                   min="0"
                   step="any"
                   placeholder="Цена"

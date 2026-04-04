@@ -539,7 +539,7 @@ async function fetchTcgdexSource(externalId: string | null, prefer: "eur" | "usd
 }
 
 async function fetchComicsSources(externalId: string | null, name: string): Promise<PriceSource[]> {
-  let ebayQuery = `"${name}" comic book`;
+  let ebayQuery = `"${name}"`;
 
   // Use cvId to build a precise "Volume #Issue" query from DB record
   if (externalId) {
@@ -547,7 +547,7 @@ async function fetchComicsSources(externalId: string | null, name: string): Prom
       const { getByCvId } = await import("./comicsDb");
       const record = await getByCvId(externalId.replace(/^cv-/, ""));
       if (record) {
-        ebayQuery = `"${record.volumeName} #${record.issueNumber}" comic book`;
+        ebayQuery = `"${record.volumeName} #${record.issueNumber}"`;
       }
     } catch { /* fall back to name */ }
   }

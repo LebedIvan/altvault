@@ -35,7 +35,7 @@ export async function GET(req: Request) {
   for (let i = 0; i < toPrice.length; i++) {
     const comic = toPrice[i]!;
     // Quoted title + "comic book" to keep eBay results focused
-    const query = `"${comic.volumeName} #${comic.issueNumber}" comic book`;
+    const query = `"${comic.volumeName} #${comic.issueNumber}"`;
 
     try {
       const result = await fetchEbaySold(query);

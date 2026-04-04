@@ -8,7 +8,6 @@ import { TrendChart } from "./TrendChart";
 import { AssetTable } from "./AssetTable";
 import { AllocationChart } from "./AllocationChart";
 import { TaxReportPanel } from "./TaxReport";
-import { AddAssetModal } from "./AddAssetModal";
 import { NewTransactionModal } from "./NewTransactionModal";
 import { TopMovers } from "./TopMovers";
 import { computePortfolioSummary } from "@/lib/calculations/portfolio";
@@ -22,12 +21,11 @@ import { useUser, getInitials } from "@/store/userStore";
 import { useAuth } from "@/store/authStore";
 import { useLang } from "@/store/langStore";
 import { t } from "@/lib/i18n";
-import { refreshAllPrices, type RefreshResult } from "@/lib/priceRefresh";
 
 type Tab = "overview" | "holdings" | "tax";
 
 export function PortfolioDashboard() {
-  const { assets, updatePrice, updateAsset, resetToDemo, isLoaded } = usePortfolio();
+  const { assets, isLoaded } = usePortfolio();
   const { displayCurrency, setDisplayCurrency, fmtCents } = useCurrency();
   const { profile } = useUser();
   const { mode, user, logout } = useAuth();
@@ -41,10 +39,7 @@ export function PortfolioDashboard() {
 
   const [tab, setTab] = useState<Tab>("overview");
   const [taxYear, setTaxYear] = useState(2024);
-  const [showAddModal, setShowAddModal] = useState(false);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshLog, setRefreshLog] = useState<RefreshResult[]>([]);
 
   const summary = computePortfolioSummary(assets);
   const health  = computeHealthScore(assets);
@@ -56,25 +51,6 @@ export function PortfolioDashboard() {
   const currentYear = new Date().getFullYear();
   const taxYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
-  async function handleRefreshPrices() {
-    setRefreshing(true);
-    setRefreshLog([]);
-    const results = await refreshAllPrices(assets);
-    for (const r of results) {
-      if (r.priceCents !== null) {
-        updatePrice(r.assetId, r.priceCents);
-      }
-      if (r.extraPatch) {
-        updateAsset(r.assetId, r.extraPatch);
-      }
-    }
-    setRefreshLog(results);
-    setRefreshing(false);
-  }
-
-  const supportedCount = assets.filter(
-    (a) => a.assetClass === "cs2_skins" || a.assetClass === "commodities" || a.assetClass === "trading_cards" || a.assetClass === "games_tech",
-  ).length;
 
   return (
     <div className="min-h-screen bg-[#0B1120] text-[#E8F0FF]">
@@ -139,33 +115,12 @@ export function PortfolioDashboard() {
               ))}
             </select>
 
-            {/* Refresh prices */}
-            {supportedCount > 0 && (
-              <button
-                onClick={handleRefreshPrices}
-                disabled={refreshing}
-                className="fm flex items-center gap-1 rounded-lg border border-[#1C2640] bg-[#0E1830] px-2 py-1.5 text-xs font-medium text-[#4E6080] hover:border-[#F59E0B]/30 hover:text-[#F59E0B] disabled:opacity-50 transition-colors"
-              >
-                <span className={clsx("text-base leading-none", refreshing && "animate-spin")}>↻</span>
-                <span className="hidden sm:inline">{refreshing ? t(lang, "app_refreshing") : t(lang, "app_refresh_prices")}</span>
-              </button>
-            )}
-
             {/* Demo badge */}
             {mode === "demo" && (
               <span className="fm hidden sm:inline rounded-full border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2 py-1 text-xs font-semibold text-[#F59E0B] uppercase tracking-wider">
                 {t(lang, "app_demo_badge")}
               </span>
             )}
-            {mode === "user" && (
-              <button
-                onClick={() => { if (confirm(t(lang, "app_demo_confirm"))) resetToDemo(); }}
-                className="fm hidden sm:flex items-center rounded-lg border border-[#1C2640] bg-[#0E1830] px-2 py-1.5 text-xs font-medium text-[#3E5070] hover:border-[#2A3A50] hover:text-[#B0C4DE] transition-colors"
-              >
-                {t(lang, "app_demo_reset")}
-              </button>
-            )}
-
             {/* Avatar */}
             <Link
               href="/settings"
@@ -190,17 +145,9 @@ export function PortfolioDashboard() {
             {/* New transaction */}
             <button
               onClick={() => setShowNewTxModal(true)}
-              className="fm flex items-center gap-1 rounded-lg border border-[#4ADE80]/30 bg-[#4ADE80]/10 px-2.5 sm:px-4 py-1.5 text-xs font-bold text-[#4ADE80] hover:bg-[#4ADE80]/20 uppercase tracking-wider transition-colors"
-            >
-              ± <span className="hidden sm:inline">Сделка</span>
-            </button>
-
-            {/* Add asset */}
-            <button
-              onClick={() => setShowAddModal(true)}
               className="fm flex items-center gap-1 rounded-lg bg-[#F59E0B] px-2.5 sm:px-4 py-1.5 text-xs font-bold text-[#0B1120] hover:bg-[#FCD34D] uppercase tracking-wider transition-colors"
             >
-              + <span className="hidden sm:inline">{t(lang, "app_add_asset")}</span>
+              + <span className="hidden sm:inline">Сделка</span>
             </button>
           </div>
         </div>
@@ -208,48 +155,16 @@ export function PortfolioDashboard() {
 
       <main className="mx-auto max-w-screen-xl px-3 sm:px-6 py-4 sm:py-8">
 
-        {/* Refresh log */}
-        {refreshLog.length > 0 && (
-          <div className="mb-4 rounded-xl border border-[#1C2640] bg-[#0E1830] p-4">
-            <p className="fm mb-2 text-xs font-semibold uppercase tracking-wider text-[#4E6080]">
-              {t(lang, "app_refresh_result")}
-            </p>
-            <div className="space-y-1">
-              {refreshLog.map((r) => {
-                const asset = assets.find((a) => a.id === r.assetId);
-                return (
-                  <div key={r.assetId} className="flex items-center gap-3 text-sm">
-                    <span
-                      className={clsx(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        r.priceCents !== null ? "bg-[#4ADE80]" : "bg-[#F87171]",
-                      )}
-                    />
-                    <span className="fm text-[#B0C4DE]">{asset?.name ?? r.assetId}</span>
-                    {r.priceCents !== null ? (
-                      <span className="fm text-[#4ADE80]">
-                        → {fmtCents(r.priceCents, asset?.currency ?? "EUR")}
-                      </span>
-                    ) : (
-                      <span className="fm text-[#F87171]">{r.error}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/* Empty state */}
         {isLoaded && assets.length === 0 && (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#1C2640] py-20 text-center">
             <p className="fb text-2xl font-bold text-[#3E5070]">{t(lang, "app_empty_title")}</p>
             <p className="fm mt-2 text-sm text-[#2A3A50]">{t(lang, "app_empty_sub")}</p>
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => setShowNewTxModal(true)}
               className="fm mt-6 rounded-lg bg-[#F59E0B] px-6 py-2.5 text-sm font-bold text-[#0B1120] hover:bg-[#FCD34D] uppercase tracking-wider transition-colors"
             >
-              + {t(lang, "app_add_asset")}
+              + Добавить сделку
             </button>
           </div>
         )}
@@ -376,8 +291,7 @@ export function PortfolioDashboard() {
         )}
       </main>
 
-      {showAddModal    && <AddAssetModal onClose={() => setShowAddModal(false)} />}
-      {showNewTxModal  && <NewTransactionModal onClose={() => setShowNewTxModal(false)} />}
+      {showNewTxModal && <NewTransactionModal onClose={() => setShowNewTxModal(false)} />}
     </div>
   );
 }
